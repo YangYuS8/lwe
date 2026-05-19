@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="LWE logo">
+  <defs>
+    <linearGradient id="g" x1="12" y1="16" x2="116" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38bdf8"/>
+      <stop offset="0.55" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#a855f7"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#0f172a"/>
+  <path d="M24 78c14-32 30-48 48-48 14 0 24 8 32 24" fill="none" stroke="url(#g)" stroke-width="12" stroke-linecap="round"/>
+  <path d="M24 92c18-22 35-33 52-33 12 0 21 5 28 15" fill="none" stroke="#f8fafc" stroke-width="10" stroke-linecap="round" opacity="0.92"/>
+  <circle cx="90" cy="37" r="10" fill="#facc15"/>
+</svg>

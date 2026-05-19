@@ -23,6 +23,12 @@ It is designed for practical Linux migration workflows:
 - Check compatibility before applying wallpapers
 - Assign wallpapers to monitors in a desktop-oriented workflow
 
+## Documentation
+
+- Online documentation: https://yangyus8.top/lwe/
+- Local documentation source: `docs/`
+- Simplified Chinese documentation: https://yangyus8.top/lwe/zh/
+
 ## Tested desktop environment
 
 LWE is currently tested on:
@@ -91,4 +97,4 @@ Download from the repository Releases page.
 
 ## Contributor and agent notes
 
-Project contributor/agent guidance is documented in `docs/agent/README_AGENT.md`.
+Contributor guidance is documented in `docs/contributing/guide.md` and published in the online documentation.

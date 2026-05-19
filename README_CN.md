@@ -23,6 +23,12 @@ LWE 是一个 Linux 桌面应用，用于浏览、管理并应用 Wallpaper Engi
 - 在应用前查看兼容性信息
 - 按显示器分配壁纸的桌面工作流
 
+## 文档
+
+- 在线文档：https://yangyus8.top/lwe/zh/
+- 本地文档源码：`docs/`
+- 英文文档：https://yangyus8.top/lwe/
+
 ## 已测试桌面环境
 
 当前已验证环境：
@@ -91,4 +97,4 @@ yay -S lwe-git
 
 ## 面向贡献者与 Agent 的说明
 
-贡献/Agent 相关文档请查看：`docs/agent/README_AGENT.md`。
+贡献者说明请查看 `docs/zh/contributing/guide.md`，并会发布到在线文档站点。

@@ -1,6 +1,6 @@
 # Rust
 target/
-# Note: Cargo.lock should be committed for binary crates (wayvid is a binary project)
+# Note: Cargo.lock should be committed for binary crates (LWE is an application project)
 # See: https://doc.rust-lang.org/cargo/faq.html#why-do-binaries-have-cargolock-in-version-control-but-not-libraries
 **/*.rs.bk
 *.pdb
@@ -46,6 +46,8 @@ result-*
 # Documentation build artifacts
 docs/*.mo
 docs/po/*.mo
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 
 # Local git worktrees
 .worktrees/
