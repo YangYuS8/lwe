@@ -12,14 +12,14 @@ pub use session::WallpaperSession;
 
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver as StdReceiver, Sender as StdSender};
-use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use anyhow::{Context, Result};
-use calloop::channel::{channel, Sender};
 use calloop::EventLoop;
+use calloop::channel::{Sender, channel};
 use calloop_wayland_source::WaylandSource;
 use tracing::{debug, error, info, warn};
 use wayland_client::protocol::wl_callback::{self, WlCallback};
@@ -202,9 +202,6 @@ fn run_engine_thread(
     // Do initial roundtrip to get outputs and globals
     debug!("Performing initial Wayland roundtrip to enumerate outputs");
 
-    // Send started event
-    let _ = events_tx.send(EngineEvent::Started);
-
     // Initialize EGL context after globals are bound
     // We need a few roundtrips first to get compositor and layer_shell
     for _ in 0..3 {
@@ -222,19 +219,38 @@ fn run_engine_thread(
                 state.egl_context = Some(egl_ctx);
             }
             Err(e) => {
-                warn!("  ✗ Failed to initialize EGL: {}", e);
+                let reason = format!("Failed to initialize EGL: {e}");
+                warn!("  ✗ {}", reason);
                 warn!("    Wallpaper rendering will not work");
+                let _ = events_tx.send(EngineEvent::Error(reason));
+                state.running = false;
+                let _ = events_tx.send(EngineEvent::Stopped);
+                return Ok(());
             }
         }
     } else {
-        warn!("Missing compositor or layer_shell - cannot create wallpaper surfaces");
+        let mut missing = Vec::new();
         if state.compositor.is_none() {
+            missing.push("wl_compositor");
             warn!("  - wl_compositor not bound");
         }
         if state.layer_shell.is_none() {
+            missing.push("zwlr_layer_shell_v1");
             warn!("  - zwlr_layer_shell_v1 not bound");
         }
+        let reason = format!(
+            "Missing required Wayland globals for wallpaper rendering: {}",
+            missing.join(", ")
+        );
+        warn!("{}", reason);
+        let _ = events_tx.send(EngineEvent::Error(reason));
+        state.running = false;
+        let _ = events_tx.send(EngineEvent::Stopped);
+        return Ok(());
     }
+
+    // Send started event after render prerequisites have been checked.
+    let _ = events_tx.send(EngineEvent::Started);
 
     // Main event loop with power management
     let battery_check_interval = std::time::Duration::from_secs(10);
@@ -355,6 +371,11 @@ fn render_all_surfaces(state: &mut EngineState) {
             Ok(false) => {}
             Err(e) => {
                 warn!("Frame render error for {}: {}", output_name, e);
+                if surface_info.pending_apply_path.is_some() {
+                    let _ = state.events_tx.send(EngineEvent::Error(format!(
+                        "Failed to render first frame for {output_name}: {e}"
+                    )));
+                }
             }
         }
 
@@ -476,19 +497,27 @@ fn handle_command(cmd: EngineCommand, state: &mut EngineState) {
         EngineCommand::ClearWallpaper { output } => {
             debug!("ClearWallpaper: {:?}", output);
 
+            let explicit_output = output.is_some();
             let outputs_to_clear: Vec<String> = match output {
                 Some(name) => vec![name],
                 None => state.sessions.keys().cloned().collect(),
             };
 
             for output_name in outputs_to_clear {
+                let mut cleared = false;
+
                 // Remove layer surface first
                 if let Some(info) = state.layer_surfaces.remove(&output_name) {
                     info.layer_surface.destroy();
+                    cleared = true;
                 }
                 // Then remove session
                 if let Some(session) = state.sessions.remove(&output_name) {
                     drop(session);
+                    cleared = true;
+                }
+
+                if cleared || explicit_output {
                     let _ = state.events_tx.send(EngineEvent::WallpaperCleared {
                         output: output_name,
                     });
@@ -635,7 +664,7 @@ fn apply_wallpaper_to_output(
         &wl_surface,
         Some(&wl_output),
         zwlr_layer_shell_v1::Layer::Background,
-        CString::new("wayvid").unwrap().into_string().unwrap(),
+        CString::new("lwe").unwrap().into_string().unwrap(),
         qh,
         output_name.to_string(),
     );

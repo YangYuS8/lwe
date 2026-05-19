@@ -3,17 +3,17 @@
 //! This module provides a high-level wrapper around libmpv for video playback
 //! with hardware decoding, HDR tone mapping, and OpenGL rendering support.
 
-use std::ffi::{c_char, c_void, CString};
+use std::ffi::{CString, c_char, c_void};
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use tracing::{debug, info, warn};
 
 use lwe_core::{
-    hdr::{parse_colorspace, parse_transfer_function, HdrMetadata, HdrMode, ToneMappingConfig},
     HwdecMode, LayoutMode, OutputInfo,
+    hdr::{HdrMetadata, HdrMode, ToneMappingConfig, parse_colorspace, parse_transfer_function},
 };
 
 use crate::egl::EglContext;

@@ -12,7 +12,7 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use tracing::{debug, info};
 
 use lwe_core::{SourceType, WallpaperItem, WallpaperMetadata, WallpaperType};
@@ -1104,9 +1104,11 @@ mod tests {
 
         let folders = db.list_folders().unwrap();
         assert_eq!(folders.len(), 2);
-        assert!(folders
-            .iter()
-            .any(|f| f.path.to_string_lossy().contains("wallpapers")));
+        assert!(
+            folders
+                .iter()
+                .any(|f| f.path.to_string_lossy().contains("wallpapers"))
+        );
 
         db.remove_folder(Path::new("/home/user/wallpapers"))
             .unwrap();

@@ -4,7 +4,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use lwe_engine::{spawn_engine, EngineCommand, EngineConfig, EngineEvent, EngineHandle};
+use lwe_engine::{EngineCommand, EngineConfig, EngineEvent, EngineHandle, spawn_engine};
 use lwe_library::{WeProject, WorkshopProjectType};
 
 use crate::results::desktop::{
@@ -21,6 +21,8 @@ pub(crate) const LIBRARY_RESOLUTION_ISSUE_PREFIX: &str =
     "Unable to resolve desktop items against the current Library snapshot:";
 const REAL_APPLY_BACKEND: &str = "lwe_engine_wayland";
 const REAL_APPLY_BACKEND_TIMEOUT: Duration = Duration::from_secs(5);
+const BACKEND_NOT_RUNNING_CLEAR_WARNING: &str =
+    "Desktop runtime was not running; cleared the saved assignment only";
 
 struct RunningDesktopApplyBackend {
     handle: EngineHandle,
@@ -399,8 +401,8 @@ impl DesktopService {
         Ok(path)
     }
 
-    fn ensure_running_apply_backend(
-    ) -> Result<std::sync::MutexGuard<'static, Option<RunningDesktopApplyBackend>>, String> {
+    fn ensure_running_apply_backend()
+    -> Result<std::sync::MutexGuard<'static, Option<RunningDesktopApplyBackend>>, String> {
         let mut backend = desktop_apply_backend_slot()
             .lock()
             .map_err(|_| "Desktop apply backend lock was poisoned".to_string())?;
@@ -548,9 +550,7 @@ impl DesktopService {
                     .next()
                     .ok_or_else(|| format!("Monitor {monitor_id} unexpectedly resolved empty"))?;
 
-                if let Err(reason) = Self::clear_with_real_backend(&monitor) {
-                    return Ok(DesktopApplyResult::BackendUnavailable { reason });
-                }
+                let runtime_warning = Self::clear_with_real_backend(&monitor).err();
 
                 let persistence = match DesktopPersistenceService::for_user_path() {
                     Ok(service) => service,
@@ -560,9 +560,15 @@ impl DesktopService {
                 };
 
                 match persistence.clear_assignment(monitor_id) {
-                    DesktopPersistenceWrite::Cleared => Ok(DesktopApplyResult::Cleared {
-                        monitor_id: monitor_id.to_string(),
-                    }),
+                    DesktopPersistenceWrite::Cleared => match runtime_warning {
+                        Some(warning) => Ok(DesktopApplyResult::ClearedWithBackendWarning {
+                            monitor_id: monitor_id.to_string(),
+                            warning,
+                        }),
+                        None => Ok(DesktopApplyResult::Cleared {
+                            monitor_id: monitor_id.to_string(),
+                        }),
+                    },
                     DesktopPersistenceWrite::Saved => {
                         Ok(DesktopApplyResult::PersistenceUnavailable {
                             reason: "Desktop persistence returned a save result while clearing"
@@ -587,44 +593,46 @@ impl DesktopService {
             .lock()
             .map_err(|_| "Desktop apply backend lock was poisoned".to_string())?;
 
-        let mut backend = backend_guard
-            .take()
-            .ok_or_else(|| "Desktop apply backend is not running".to_string())?;
+        let Some(backend) = backend_guard.as_mut() else {
+            return Err(BACKEND_NOT_RUNNING_CLEAR_WARNING.to_string());
+        };
 
-        if let Err(reason) = Self::wait_for_output(&mut backend, &monitor.backend_output_id) {
-            *backend_guard = Some(backend);
-            return Err(reason);
+        if !backend.handle.is_running() {
+            *backend_guard = None;
+            return Err(BACKEND_NOT_RUNNING_CLEAR_WARNING.to_string());
         }
 
-        backend.handle.request_shutdown();
+        Self::wait_for_output(backend, &monitor.backend_output_id)?;
+        backend
+            .handle
+            .send(EngineCommand::ClearWallpaper {
+                output: Some(monitor.backend_output_id.clone()),
+            })
+            .map_err(|error| format!("Failed to send real desktop clear command: {error}"))?;
 
-        let stop_result = Self::wait_for_backend_stop(&mut backend);
-        let join_result = backend.handle.join().map_err(|error| error.to_string());
-
-        match (stop_result, join_result) {
-            (Ok(()), Ok(())) => Ok(()),
-            (Err(reason), _) => Err(reason),
-            (_, Err(reason)) => Err(format!(
-                "{REAL_APPLY_BACKEND} failed to shut down cleanly after clear: {reason}"
-            )),
-        }
+        Self::wait_for_clear(backend, &monitor.backend_output_id)
     }
 
-    fn wait_for_backend_stop(backend: &mut RunningDesktopApplyBackend) -> Result<(), String> {
+    fn wait_for_clear(
+        backend: &mut RunningDesktopApplyBackend,
+        output_name: &str,
+    ) -> Result<(), String> {
         let deadline = Instant::now() + REAL_APPLY_BACKEND_TIMEOUT;
 
         loop {
             match Self::recv_backend_event(backend, deadline)? {
-                Some(EngineEvent::Stopped) => return Ok(()),
+                Some(EngineEvent::WallpaperCleared { output }) if output == output_name => {
+                    return Ok(());
+                }
                 Some(EngineEvent::Error(reason)) => {
                     return Err(format!(
-                        "{REAL_APPLY_BACKEND} failed to stop during clear: {reason}"
+                        "{REAL_APPLY_BACKEND} failed to clear output {output_name}: {reason}"
                     ));
                 }
                 Some(_) => {}
                 None => {
                     return Err(format!(
-                        "Timed out waiting for {REAL_APPLY_BACKEND} to stop after clear"
+                        "Timed out waiting for {REAL_APPLY_BACKEND} to clear output {output_name}"
                     ));
                 }
             }
@@ -728,6 +736,12 @@ mod tests {
 
             entry.entry.library_item_id
         })
+    }
+
+    fn real_desktop_tests_enabled() -> bool {
+        std::env::var("LWE_REAL_DESKTOP_TESTS")
+            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+            .unwrap_or(false)
     }
 
     fn library_item(item_id: &str, title: &str) -> AssessedWorkshopCatalogEntry {
@@ -1003,8 +1017,13 @@ mod tests {
     }
 
     #[test]
-    fn desktop_apply_flow_apply_to_monitor_avoids_placeholder_result_for_real_monitor_and_library_item(
-    ) {
+    fn desktop_apply_flow_apply_to_monitor_avoids_placeholder_result_for_real_monitor_and_library_item()
+     {
+        if !real_desktop_tests_enabled() {
+            eprintln!("skipping real desktop apply test; set LWE_REAL_DESKTOP_TESTS=1 to enable");
+            return;
+        }
+
         let monitor = known_monitor().expect("expected a real discovered monitor on this machine");
         let item_id = real_supported_library_item_id()
             .expect("expected one real supported video Library item on this machine");
@@ -1022,10 +1041,22 @@ mod tests {
             item_id,
             result
         );
+
+        let clear_result = DesktopService::clear_monitor(&monitor.id).unwrap();
+        assert!(matches!(
+            clear_result,
+            DesktopApplyResult::Cleared { .. }
+                | DesktopApplyResult::ClearedWithBackendWarning { .. }
+        ));
     }
 
     #[test]
     fn desktop_apply_flow_clear_monitor_reflects_current_monitor_discovery_state() {
+        if !real_desktop_tests_enabled() {
+            eprintln!("skipping real desktop clear test; set LWE_REAL_DESKTOP_TESTS=1 to enable");
+            return;
+        }
+
         let Some(monitor_id) = known_monitor_id() else {
             let result = DesktopService::clear_monitor("DISPLAY-1").unwrap();
 

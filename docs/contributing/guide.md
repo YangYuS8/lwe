@@ -4,7 +4,7 @@
 
 Install the core toolchain:
 
-- Node.js 20 or newer;
+- Node.js 24 recommended; Node.js 20 or newer may work when supported by the frontend toolchain;
 - pnpm;
 - Rust stable;
 - platform dependencies required by Tauri 2 on your distribution.
@@ -20,12 +20,17 @@ Run frontend checks:
 ```bash
 pnpm check
 pnpm test
+pnpm build
+pnpm docs:build
 ```
 
 Run Rust checks:
 
 ```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
 cargo check --workspace
+cargo test --workspace
 ```
 
 Build documentation locally:
@@ -86,11 +91,35 @@ Before submitting a change, run the smallest meaningful set of checks. For broad
 ```bash
 pnpm check
 pnpm test
+pnpm build
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
 cargo check --workspace
+cargo test --workspace
 pnpm docs:build
 ```
 
 For documentation-only changes, `pnpm docs:build` is the required validation.
+
+## Real desktop runtime acceptance
+
+Runtime changes must be validated on a real supported desktop session before they are described as supported. The current verified target is Wayland with `niri` and video wallpapers.
+
+Use this checklist for runtime changes:
+
+1. discover at least one active monitor in LWE;
+2. apply a compatible video wallpaper from Library to one monitor;
+3. confirm the desktop visibly changes;
+4. if multiple monitors are present, apply a wallpaper to a second monitor and then clear only one monitor;
+5. confirm clearing one monitor does not stop wallpapers on other monitors;
+6. restart LWE and confirm saved assignments are restored or that restore failures are visible in Desktop;
+7. clear all assignments and confirm the saved session no longer restores them.
+
+Real desktop tests in the Rust test suite are opt-in because they depend on the active compositor, monitor layout, GPU/EGL stack, Steam Workshop content, and local video assets. Run them explicitly on a verified machine:
+
+```bash
+LWE_REAL_DESKTOP_TESTS=1 cargo test -p lwe-shell desktop_apply_flow -- --nocapture
+```
 
 ## Reporting issues
 

@@ -21,6 +21,7 @@ Possible reasons include:
 - the item is a web or scene wallpaper outside the current support level;
 - the local Workshop content is incomplete or has not synchronized yet;
 - the current desktop session has not been validated.
+- the runtime backend could not initialize Wayland layer-shell, EGL, or the target output.
 
 Video wallpapers are the first-release runtime focus. Do not assume every Wallpaper Engine item is runnable on Linux.
 
@@ -34,6 +35,16 @@ Then try:
 2. reselect the monitor;
 3. apply the wallpaper again;
 4. restart LWE if the session state appears stale.
+
+When launching from a terminal, runtime errors are most useful when they name one of these stages:
+
+- backend start;
+- output discovery;
+- first-frame apply;
+- per-monitor clear;
+- restore on startup.
+
+Common low-level causes include missing `zwlr_layer_shell_v1`, unavailable EGL, a monitor/output name mismatch, a missing local video asset, or an unsupported wallpaper type.
 
 If this only fails on a different compositor, document the compositor, session type, and monitor layout when reporting the issue.
 

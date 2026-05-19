@@ -1,9 +1,9 @@
 //! EGL context management for OpenGL rendering on Wayland
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use khronos_egl as egl;
-use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::Proxy;
+use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_egl as wegl;
 
 /// EGL context manager for OpenGL rendering on Wayland

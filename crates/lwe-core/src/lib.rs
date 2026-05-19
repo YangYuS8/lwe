@@ -23,10 +23,10 @@ pub use hdr::{
     ColorSpace, HdrMetadata, HdrMode, ToneMappingAlgorithm, ToneMappingConfig, TransferFunction,
 };
 pub use ipc::{
-    default_socket_path, IpcRequest, IpcResponse, LibraryFilter, LibraryItem,
-    OutputInfo as IpcOutputInfo, OutputStatus,
+    IpcRequest, IpcResponse, LibraryFilter, LibraryItem, OutputInfo as IpcOutputInfo, OutputStatus,
+    default_socket_path,
 };
-pub use layout::{calculate_layout, LayoutTransform};
+pub use layout::{LayoutTransform, calculate_layout};
 pub use library::{SourceType, WallpaperItem, WallpaperMetadata, WallpaperType};
 pub use settings::AppSettings;
 pub use types::{

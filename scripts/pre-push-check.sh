@@ -35,10 +35,46 @@ print_warning() {
 START_TIME=$(date +%s)
 
 echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║   LWE Pre-Push Quality Checks (v0.5)   ║${NC}"
+echo -e "${BLUE}║   LWE Pre-Push Quality Checks          ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
 
-# 1. Format check
+# 1. Frontend type checks
+print_section "Running frontend type checks..."
+if pnpm check; then
+    print_success "Frontend type checks passed"
+else
+    print_error "Frontend type checks failed"
+    exit 1
+fi
+
+# 2. Frontend tests
+print_section "Running frontend tests..."
+if pnpm test; then
+	print_success "Frontend tests passed"
+else
+	print_error "Frontend tests failed"
+	exit 1
+fi
+
+# 3. Frontend production build
+print_section "Building frontend..."
+if pnpm build; then
+    print_success "Frontend build passed"
+else
+    print_error "Frontend build failed"
+    exit 1
+fi
+
+# 4. Documentation build
+print_section "Building documentation..."
+if pnpm docs:build; then
+	print_success "Documentation build passed"
+else
+	print_error "Documentation build failed"
+	exit 1
+fi
+
+# 5. Format check
 print_section "Checking code formatting..."
 if cargo fmt --all -- --check >/dev/null 2>&1; then
 	print_success "Code formatting is correct"
@@ -48,9 +84,9 @@ else
 	exit 1
 fi
 
-# 2. Clippy (workspace mode)
+# 6. Clippy (workspace mode)
 print_section "Running Clippy (workspace)..."
-if RUSTFLAGS="-D warnings" cargo clippy --workspace --all-targets 2>&1 | grep -q "Finished"; then
+if cargo clippy --workspace --all-targets -- -D warnings; then
 	print_success "Clippy checks passed"
 else
 	print_error "Clippy found issues"
@@ -58,7 +94,7 @@ else
 	exit 1
 fi
 
-# 3. Cargo check (workspace)
+# 7. Cargo check (workspace)
 print_section "Checking compilation (workspace)..."
 if cargo check --workspace --quiet >/dev/null 2>&1; then
 	print_success "Workspace compiles"
@@ -67,7 +103,7 @@ else
 	exit 1
 fi
 
-# 4. Tests (workspace)
+# 8. Tests (workspace)
 if [ "${SKIP_TESTS:-0}" = "0" ]; then
 	print_section "Running tests (workspace)..."
 	if cargo test --workspace --quiet >/dev/null 2>&1; then

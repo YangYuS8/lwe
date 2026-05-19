@@ -82,14 +82,10 @@ fi
 echo
 echo "[Workspace Crates]"
 echo "  Active workspace members:"
-echo "  - lwe-shell   (active LWE application shell)"
-echo "  - lwe-core        (retained core types and config)"
-echo "  - lwe-engine      (retained Wayland + MPV rendering)"
-echo "  - lwe-library     (retained wallpaper library logic)"
-echo
-echo "  Retired reference crates (not active workspace members):"
-echo "  - wayvid-gui      (retired legacy GUI shell)"
-echo "  - wayvid-ctl      (retired legacy CLI surface)"
+echo "  - lwe-shell       (active LWE application shell)"
+echo "  - lwe-core        (shared core types and config)"
+echo "  - lwe-engine      (Wayland + MPV rendering)"
+echo "  - lwe-library     (wallpaper library logic)"
 
 echo
 echo "=== Check Complete ==="

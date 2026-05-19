@@ -1,7 +1,7 @@
 use crate::assembly::compatibility::compatibility_summary;
 use crate::models::LibraryPageSnapshot;
 use crate::models::{ItemType, LibraryItemSummary, LibrarySource, WorkshopAgeRating};
-use crate::policies::shared::cover_policy::{cover_art_source, CoverArtSource};
+use crate::policies::shared::cover_policy::{CoverArtSource, cover_art_source};
 use crate::results::desktop::DesktopPageResult;
 use crate::results::library::LibraryProjection;
 use crate::results::workshop::AssessedWorkshopCatalogEntry;

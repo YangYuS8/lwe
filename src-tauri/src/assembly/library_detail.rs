@@ -1,6 +1,6 @@
 use crate::assembly::compatibility::compatibility_explanation;
 use crate::models::{ItemType, LibraryItemDetail, LibrarySource};
-use crate::policies::shared::cover_policy::{cover_art_source, CoverArtSource};
+use crate::policies::shared::cover_policy::{CoverArtSource, cover_art_source};
 use crate::results::desktop::DesktopPageResult;
 use crate::results::workshop::AssessedWorkshopCatalogEntry;
 use crate::services::library_service::LibraryService;

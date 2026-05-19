@@ -58,7 +58,7 @@ jobs:
       - name: Enable pnpm via Corepack
         run: |
           corepack enable
-          corepack prepare pnpm@10 --activate
+          corepack prepare pnpm@11.1.3 --activate
           pnpm --version
 
       - name: Setup Rust

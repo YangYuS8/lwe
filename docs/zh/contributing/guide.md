@@ -4,7 +4,7 @@
 
 安装核心工具链：
 
-- Node.js 20 或更新版本；
+- 推荐 Node.js 24；当且仅当前端工具链支持时，Node.js 20 或更新版本也可能可用；
 - pnpm；
 - Rust stable；
 - 当前发行版所需的 Tauri 2 平台依赖。
@@ -20,12 +20,17 @@ pnpm install
 ```bash
 pnpm check
 pnpm test
+pnpm build
+pnpm docs:build
 ```
 
 运行 Rust 检查：
 
 ```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
 cargo check --workspace
+cargo test --workspace
 ```
 
 本地构建文档：
@@ -86,11 +91,35 @@ LWE 的用户可见界面目标支持英文和简体中文。
 ```bash
 pnpm check
 pnpm test
+pnpm build
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
 cargo check --workspace
+cargo test --workspace
 pnpm docs:build
 ```
 
 对于仅文档变更，`pnpm docs:build` 是必需验证项。
+
+## 真实桌面运行时验收
+
+运行时变更在写成“已支持”前，必须先在真实受支持桌面会话上验证。当前已验证目标是 Wayland + `niri`，内容类型是视频类壁纸。
+
+运行时变更请使用以下清单：
+
+1. 在 LWE 中发现至少一个活动显示器；
+2. 从本地库把一张兼容的视频壁纸应用到一个显示器；
+3. 确认桌面可见变化；
+4. 如果存在多个显示器，把壁纸应用到第二个显示器，然后只清除其中一个显示器；
+5. 确认清除一个显示器不会停止其他显示器上的壁纸；
+6. 重启 LWE，确认已保存分配能恢复，或恢复失败能在 Desktop 页面中显示；
+7. 清除所有分配，并确认保存的会话不会再次恢复它们。
+
+Rust 测试套件中的真实桌面测试需要显式启用，因为它们依赖当前合成器、显示器布局、GPU/EGL 栈、Steam 创意工坊内容和本地视频资源。请只在已验证机器上运行：
+
+```bash
+LWE_REAL_DESKTOP_TESTS=1 cargo test -p lwe-shell desktop_apply_flow -- --nocapture
+```
 
 ## 报告问题
 

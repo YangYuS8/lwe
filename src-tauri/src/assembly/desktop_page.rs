@@ -205,8 +205,8 @@ mod tests {
     }
 
     #[test]
-    fn desktop_apply_flow_assembler_keeps_runtime_status_unsupported_when_only_assignments_are_unavailable(
-    ) {
+    fn desktop_apply_flow_assembler_keeps_runtime_status_unsupported_when_only_assignments_are_unavailable()
+     {
         let snapshot = assemble_desktop_page(DesktopPageResult {
             monitors: vec![MonitorDescriptor {
                 id: "DISPLAY-1".to_string(),

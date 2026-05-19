@@ -229,7 +229,7 @@ impl ScopedAutostartService {
                 return Err(format!(
                     "Failed to read autostart directory {}: {error}",
                     dir.display()
-                ))
+                ));
             }
         };
 
@@ -513,7 +513,7 @@ fn parse_desktop_entry_exec_value(exec_value: &str) -> Result<Vec<String>, Strin
                 Some(field_code) => {
                     return Err(format!(
                         "Autostart Exec line contains field code %{field_code}"
-                    ))
+                    ));
                 }
                 None => return Err("Autostart Exec line ends with a trailing %".to_string()),
             },
@@ -589,7 +589,7 @@ fn autostart_dir_for(config_root: &Path) -> PathBuf {
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{autostart_config_root_from_env, AutostartService};
+    use super::{AutostartService, autostart_config_root_from_env};
 
     fn test_config_root() -> std::path::PathBuf {
         let unique = SystemTime::now()
@@ -630,8 +630,11 @@ mod tests {
         assert!(contents.contains("[Desktop Entry]"));
         assert!(contents.contains("Type=Application"));
         assert!(contents.contains("Name=LWE"));
-        assert!(contents
-            .contains("Exec=/opt/lwe/bin/lwe --profile \"My Project\" \"say \\\"hi\\\"\" 100%%"));
+        assert!(
+            contents.contains(
+                "Exec=/opt/lwe/bin/lwe --profile \"My Project\" \"say \\\"hi\\\"\" 100%%"
+            )
+        );
         assert_eq!(
             service.status(&launch_command).state,
             super::AutostartState::Enabled
@@ -1064,20 +1067,17 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            super::desktop_entry_is_active_for_desktops(
-                &std::fs::read_to_string(service.entry_path()).unwrap(),
-                &[
-                    "/opt/lwe/bin/lwe",
-                    "--profile",
-                    "My Project",
-                    "say \"hi\"",
-                    "100%",
-                ],
-                &["KDE".to_string()],
-            ),
-            false
-        );
+        assert!(!super::desktop_entry_is_active_for_desktops(
+            &std::fs::read_to_string(service.entry_path()).unwrap(),
+            &[
+                "/opt/lwe/bin/lwe",
+                "--profile",
+                "My Project",
+                "say \"hi\"",
+                "100%",
+            ],
+            &["KDE".to_string()],
+        ));
     }
 
     #[test]
@@ -1092,20 +1092,17 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            super::desktop_entry_is_active_for_desktops(
-                &std::fs::read_to_string(service.entry_path()).unwrap(),
-                &[
-                    "/opt/lwe/bin/lwe",
-                    "--profile",
-                    "My Project",
-                    "say \"hi\"",
-                    "100%",
-                ],
-                &["GNOME".to_string(), "ubuntu:GNOME".to_string()],
-            ),
-            false
-        );
+        assert!(!super::desktop_entry_is_active_for_desktops(
+            &std::fs::read_to_string(service.entry_path()).unwrap(),
+            &[
+                "/opt/lwe/bin/lwe",
+                "--profile",
+                "My Project",
+                "say \"hi\"",
+                "100%",
+            ],
+            &["GNOME".to_string(), "ubuntu:GNOME".to_string()],
+        ));
     }
 
     #[test]

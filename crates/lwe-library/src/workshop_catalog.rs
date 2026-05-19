@@ -44,7 +44,7 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use crate::workshop::{SteamLibrary, WorkshopScanner, WALLPAPER_ENGINE_APP_ID};
+    use crate::workshop::{SteamLibrary, WALLPAPER_ENGINE_APP_ID, WorkshopScanner};
 
     fn create_scanner() -> (TempDir, WorkshopScanner, PathBuf) {
         let temp_dir = TempDir::new().unwrap();

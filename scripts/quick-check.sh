@@ -9,17 +9,21 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${BLUE}Quick Dev Check (v0.5 workspace)...${NC}"
+echo -e "${BLUE}Quick Dev Check...${NC}"
 
-# 1. Format and fix
-echo -e "${BLUE}→${NC} Formatting code..."
-cargo fmt --all
+# 1. Frontend type checks
+echo -e "${BLUE}→${NC} Checking frontend types..."
+pnpm check
 
-# 2. Quick clippy on workspace
+# 2. Format check
+echo -e "${BLUE}→${NC} Checking code formatting..."
+cargo fmt --all -- --check
+
+# 3. Quick clippy on workspace
 echo -e "${BLUE}→${NC} Running workspace clippy..."
-cargo clippy --workspace -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 
-# 3. Quick compile check
+# 4. Quick compile check
 echo -e "${BLUE}→${NC} Checking compilation..."
 cargo check --workspace
 

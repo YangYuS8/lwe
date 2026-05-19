@@ -57,6 +57,18 @@ pub fn assemble_desktop_apply_outcome(result: DesktopApplyResult) -> ActionOutco
             current_update: None,
             invalidations: vec![InvalidatedPage::Desktop, InvalidatedPage::Library],
         },
+        DesktopApplyResult::ClearedWithBackendWarning {
+            monitor_id,
+            warning,
+        } => ActionOutcome {
+            ok: true,
+            message: Some(format!(
+                "Cleared desktop assignment for {monitor_id}; runtime warning: {warning}"
+            )),
+            shell_patch: None,
+            current_update: None,
+            invalidations: vec![InvalidatedPage::Desktop, InvalidatedPage::Library],
+        },
         DesktopApplyResult::MonitorNotFound { monitor_id } => ActionOutcome {
             ok: false,
             message: Some(format!("Monitor {monitor_id} was not found")),

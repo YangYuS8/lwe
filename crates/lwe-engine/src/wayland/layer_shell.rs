@@ -11,17 +11,17 @@ use smithay_client_toolkit::{
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     shell::{
+        WaylandSurface,
         wlr_layer::{
             Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler,
             LayerSurface as SctkLayerSurface, LayerSurfaceConfigure,
         },
-        WaylandSurface,
     },
 };
 use wayland_client::{
+    Connection, QueueHandle,
     globals::registry_queue_init,
     protocol::{wl_output::WlOutput, wl_surface::WlSurface},
-    Connection, QueueHandle,
 };
 
 /// Layer surface configuration

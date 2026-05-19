@@ -554,7 +554,10 @@ mod tests {
             desktop_value["missingMonitorRestores"][0]["restoreState"],
             "missing_monitor"
         );
-        assert_eq!(desktop_value["restoreIssues"][0], "Saved assignment for missing monitor DISPLAY-2 still points to Forest Scene (scene-7).");
+        assert_eq!(
+            desktop_value["restoreIssues"][0],
+            "Saved assignment for missing monitor DISPLAY-2 still points to Forest Scene (scene-7)."
+        );
         assert_eq!(library_value["assignedMonitorLabels"][0], "Primary");
     }
 }

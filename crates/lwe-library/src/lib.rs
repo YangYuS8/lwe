@@ -48,8 +48,8 @@ pub use scanner::{
     AsyncFileWatcher, FileEvent, FileWatcher, FolderScanner, IncrementalScanner, ScanResult,
 };
 pub use thumbnail::{
-    get_video_dimensions, get_video_duration, CacheStats, ThumbnailFormat, ThumbnailGenerator,
-    ThumbnailPriority, ThumbnailRequest, ThumbnailResponse, ThumbnailResult, ThumbnailService,
+    CacheStats, ThumbnailFormat, ThumbnailGenerator, ThumbnailPriority, ThumbnailRequest,
+    ThumbnailResponse, ThumbnailResult, ThumbnailService, get_video_dimensions, get_video_duration,
 };
 pub use workshop_catalog::{WorkshopCatalogEntry, WorkshopProjectType, WorkshopSyncState};
 
@@ -58,6 +58,6 @@ pub use lwe_core::{SourceType, WallpaperItem, WallpaperMetadata, WallpaperType};
 
 // Workshop exports
 pub use workshop::{
-    get_project_type, is_we_project, SteamLibrary, WeProject, WorkshopScanner,
-    WALLPAPER_ENGINE_APP_ID,
+    SteamLibrary, WALLPAPER_ENGINE_APP_ID, WeProject, WorkshopScanner, get_project_type,
+    is_we_project,
 };

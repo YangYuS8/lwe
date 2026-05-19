@@ -1,4 +1,4 @@
-use crate::policies::shared::compatibility_policy::{compatibility_decision, CompatibilityLevel};
+use crate::policies::shared::compatibility_policy::{CompatibilityLevel, compatibility_decision};
 use crate::results::workshop::{AssessedWorkshopCatalogEntry, WorkshopProjectMetadata};
 use lwe_library::{WeProject, WorkshopCatalogEntry};
 

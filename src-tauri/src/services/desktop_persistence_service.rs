@@ -97,7 +97,7 @@ impl DesktopPersistenceService {
                         "Failed to serialize desktop assignments for {}: {error}",
                         path.display()
                     ),
-                }
+                };
             }
         };
 
@@ -214,7 +214,7 @@ mod tests {
 
     use crate::results::desktop_persistence::{DesktopPersistenceLoad, DesktopPersistenceWrite};
 
-    use super::{session_state_path_from_env, DesktopPersistenceService};
+    use super::{DesktopPersistenceService, session_state_path_from_env};
 
     fn test_state_path() -> PathBuf {
         let unique = SystemTime::now()

@@ -41,7 +41,7 @@ jobs:
       - name: Enable pnpm via Corepack
         run: |
           corepack enable
-          corepack prepare pnpm@10 --activate
+          corepack prepare pnpm@11.1.3 --activate
           pnpm --version
 
       - name: Setup Rust
@@ -62,5 +62,20 @@ jobs:
       - name: Run frontend tests
         run: pnpm test
 
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Build documentation
+        run: pnpm docs:build
+
+      - name: Run Rust format check
+        run: cargo fmt --all -- --check
+
+      - name: Run Rust clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
       - name: Run Rust checks
         run: cargo check --workspace
+
+      - name: Run Rust tests
+        run: cargo test --workspace

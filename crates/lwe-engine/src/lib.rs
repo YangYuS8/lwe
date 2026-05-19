@@ -25,8 +25,8 @@ pub mod wayland;
 
 // Re-exports - Engine API
 pub use engine::{
-    spawn_engine, EngineCommand, EngineConfig, EngineEvent, EngineHandle, EngineStatus,
-    WallpaperSession,
+    EngineCommand, EngineConfig, EngineEvent, EngineHandle, EngineStatus, WallpaperSession,
+    spawn_engine,
 };
 
 // Re-export calloop Sender for IPC integration
@@ -40,6 +40,6 @@ pub use wayland::{LayerSurface, OutputManager};
 
 // Re-exports from lwe-core
 pub use lwe_core::{
-    calculate_layout, HdrMetadata, HdrMode, HwdecMode, LayoutMode, LayoutTransform, OutputInfo,
-    RenderBackend, ToneMappingConfig,
+    HdrMetadata, HdrMode, HwdecMode, LayoutMode, LayoutTransform, OutputInfo, RenderBackend,
+    ToneMappingConfig, calculate_layout,
 };

@@ -1,9 +1,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{
+    Manager,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder},
-    Manager,
 };
 
 // Layered application core for the Tauri shell.
@@ -138,7 +138,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
                             ..
                         } = event
                         {
-                            show_main_window(&tray.app_handle());
+                            show_main_window(tray.app_handle());
                         }
                     })
                     .build(app)?;

@@ -1,6 +1,6 @@
 use crate::assembly::compatibility::compatibility_summary;
 use crate::models::{ItemType, WorkshopItemSummary, WorkshopPageSnapshot, WorkshopSyncStatus};
-use crate::policies::shared::cover_policy::{cover_art_source, CoverArtSource};
+use crate::policies::shared::cover_policy::{CoverArtSource, cover_art_source};
 use crate::results::workshop::{AssessedWorkshopCatalogEntry, WorkshopRefreshResult};
 use lwe_library::{WorkshopCatalogEntry, WorkshopProjectType, WorkshopSyncState};
 

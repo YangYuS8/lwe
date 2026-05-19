@@ -9,13 +9,13 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use notify::RecursiveMode;
-use notify_debouncer_mini::{new_debouncer, DebounceEventResult, DebouncedEventKind, Debouncer};
+use notify_debouncer_mini::{DebounceEventResult, DebouncedEventKind, Debouncer, new_debouncer};
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use tracing::{debug, info, warn};

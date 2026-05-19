@@ -71,7 +71,7 @@ impl ScopedSettingsPersistenceService {
                         "Failed to serialize settings for {}: {error}",
                         self.path.display()
                     ),
-                }
+                };
             }
         };
 
@@ -158,7 +158,7 @@ mod tests {
     use crate::models::{WorkshopAgeRating, WorkshopOnlineItemType};
     use crate::results::settings_persistence::{PersistedSettings, SettingsPersistenceLoad};
 
-    use super::{atomic_write_path_for, settings_path_from_env, SettingsPersistenceService};
+    use super::{SettingsPersistenceService, atomic_write_path_for, settings_path_from_env};
 
     fn test_settings_path() -> PathBuf {
         let unique = SystemTime::now()

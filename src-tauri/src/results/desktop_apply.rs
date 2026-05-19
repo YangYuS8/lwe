@@ -12,6 +12,10 @@ pub enum DesktopApplyResult {
     Cleared {
         monitor_id: String,
     },
+    ClearedWithBackendWarning {
+        monitor_id: String,
+        warning: String,
+    },
     MonitorNotFound {
         monitor_id: String,
     },
@@ -53,6 +57,10 @@ mod tests {
         let missing = DesktopApplyResult::MonitorNotFound {
             monitor_id: "DISPLAY-2".to_string(),
         };
+        let cleared_with_warning = DesktopApplyResult::ClearedWithBackendWarning {
+            monitor_id: "DISPLAY-1".to_string(),
+            warning: "Runtime was already stopped".to_string(),
+        };
 
         assert!(matches!(applied, DesktopApplyResult::Applied { .. }));
         assert!(matches!(
@@ -74,6 +82,10 @@ mod tests {
         assert!(matches!(
             missing,
             DesktopApplyResult::MonitorNotFound { .. }
+        ));
+        assert!(matches!(
+            cleared_with_warning,
+            DesktopApplyResult::ClearedWithBackendWarning { .. }
         ));
     }
 }
