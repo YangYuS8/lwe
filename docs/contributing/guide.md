@@ -42,7 +42,7 @@ pnpm docs:preview
 
 ## Before changing product behavior
 
-Use the OpenSpec context in `openspec/config.yaml` as the policy source for product changes.
+Use the maintained documentation in this site as the policy source for product changes.
 
 Every significant change should explain how it supports the Linux dynamic wallpaper platform rather than the retired wayvid product story. It should also state first-release non-goals when scope could be misunderstood.
 
@@ -74,6 +74,7 @@ The documentation site mirrors this rule: every maintained page under the Englis
 - Keep all maintained documentation under `docs/`.
 - Prefer task-oriented pages over archive dumps.
 - Delete or merge obsolete planning documents after their useful information is represented in maintained pages.
+- Do not reintroduce the deleted `openspec/` tree; project guidance now lives in this documentation site.
 - Keep root README files concise and link to the published documentation for details.
 - Do not document unsupported runtime behavior as supported.
 - If a feature only works on a verified environment, name that environment.

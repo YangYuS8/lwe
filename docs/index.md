@@ -14,7 +14,7 @@ It is built for practical migration workflows on Linux: keep Workshop discovery 
 ## Contributor documentation
 
 - [Project overview](./contributing/project.md): product scope, architecture, release model, and active paths.
-- [Contributor guide](./contributing/guide.md): development setup, checks, documentation policy, and spec-driven workflow.
+- [Contributor guide](./contributing/guide.md): development setup, checks, documentation policy, and product-change workflow.
 
 ## Current support scope
 
