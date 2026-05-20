@@ -76,8 +76,8 @@ mod tests {
     fn bundled_cover_is_used_when_present() {
         let entry = WorkshopCatalogEntry {
             workshop_id: 101,
-            title: "Forest Scene".to_string(),
-            project_type: WorkshopProjectType::Scene,
+            title: "Forest Video".to_string(),
+            project_type: WorkshopProjectType::Video,
             project_dir: PathBuf::from("/tmp/431960/101"),
             cover_path: Some(PathBuf::from("/tmp/431960/101/preview.jpg")),
             sync_state: WorkshopSyncState::Synced,
@@ -139,7 +139,7 @@ mod tests {
             .unwrap();
         assert_eq!(valid.project_type, WorkshopProjectType::Scene);
         assert_eq!(valid.sync_state, WorkshopSyncState::Synced);
-        assert!(valid.supported_first_release);
+        assert!(!valid.supported_first_release);
     }
 
     #[test]

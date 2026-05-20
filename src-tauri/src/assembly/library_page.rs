@@ -2,6 +2,7 @@ use crate::assembly::compatibility::compatibility_summary;
 use crate::models::LibraryPageSnapshot;
 use crate::models::{ItemType, LibraryItemSummary, LibrarySource, WorkshopAgeRating};
 use crate::policies::shared::cover_policy::{CoverArtSource, cover_art_source};
+use crate::policies::shared::support_policy::supports_first_release;
 use crate::results::desktop::DesktopPageResult;
 use crate::results::library::LibraryProjection;
 use crate::results::workshop::AssessedWorkshopCatalogEntry;
@@ -49,6 +50,7 @@ fn assemble_library_summary(entry: AssessedWorkshopCatalogEntry) -> LibraryItemS
         age_rating,
         source: LibrarySource::Workshop,
         compatibility: compatibility_summary(&entry.compatibility),
+        apply_supported: supports_first_release(entry.entry.project_type),
         favorite: false,
         assigned_monitor_labels: Vec::new(),
     }
@@ -99,13 +101,13 @@ mod tests {
         AssessedWorkshopCatalogEntry {
             entry: WorkshopCatalogEntry {
                 workshop_id: 7,
-                title: "Forest Scene".to_string(),
-                project_type: WorkshopProjectType::Scene,
+                title: "Forest Video".to_string(),
+                project_type: WorkshopProjectType::Video,
                 project_dir: std::path::PathBuf::from("/tmp/7"),
                 cover_path: None,
                 sync_state: WorkshopSyncState::Synced,
                 supported_first_release: true,
-                library_item_id: Some("scene-7".to_string()),
+                library_item_id: Some("video-7".to_string()),
             },
             compatibility: CompatibilityDecision {
                 level: CompatibilityLevel::FullySupported,
@@ -140,8 +142,8 @@ mod tests {
         );
 
         assert_eq!(snapshot.items.len(), 1);
-        assert_eq!(snapshot.items[0].id, "scene-7");
-        assert_eq!(snapshot.items[0].title, "Forest Scene");
+        assert_eq!(snapshot.items[0].id, "video-7");
+        assert_eq!(snapshot.items[0].title, "Forest Video");
         assert!(!snapshot.desktop_assignments_available);
         assert_eq!(
             snapshot.desktop_assignment_issue.as_deref(),
@@ -157,7 +159,7 @@ mod tests {
     #[test]
     fn desktop_apply_flow_library_page_includes_assigned_monitor_labels_for_matching_items() {
         let mut assignments = std::collections::BTreeMap::new();
-        assignments.insert("scene-7".to_string(), vec!["Primary".to_string()]);
+        assignments.insert("video-7".to_string(), vec!["Primary".to_string()]);
 
         let snapshot = assemble_library_page(
             LibraryProjection {

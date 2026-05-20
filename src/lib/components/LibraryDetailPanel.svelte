@@ -27,6 +27,7 @@
   $: libraryDetailCopy = $copy.components.libraryDetail;
   $: issueMessages = availabilitySource ? resolveLibraryAvailabilityIssues(availabilitySource, $copy.library) : [];
   $: assignedMonitorLabels = detail?.assignedMonitorLabels ?? [];
+  $: applyUnsupportedMessage = detail && !detail.applySupported ? libraryDetailCopy.applyUnsupported : '';
   $: detailCompatibilityLabel = detail ? getCompatibilityBadgeLabel($copy, detail.compatibility.badge) : '';
   $: detailSourceLabel = detail ? getLibrarySourceLabel($copy, detail.source) : '';
   $: detailItemTypeLabel = detail ? getItemTypeLabel($copy, detail.itemType) : '';
@@ -103,7 +104,7 @@
               name="libraryMonitor"
               value={selectedMonitorId}
               onValueChange={(value) => onMonitorChange?.(value)}
-              disabled={monitors.length === 0}
+              disabled={monitors.length === 0 || Boolean(applyUnsupportedMessage)}
             >
               <Select.Trigger aria-label={libraryDetailCopy.applyTargetMonitor}>
                 {selectedMonitorId
@@ -127,6 +128,10 @@
             {applying ? libraryDetailCopy.applying : libraryDetailCopy.apply}
           </Button>
         </div>
+
+        {#if applyUnsupportedMessage}
+          <p class="lwe-info-banner lwe-wrap-safe" role="status" aria-live="polite">{applyUnsupportedMessage}</p>
+        {/if}
 
         {#if applyError}
           <p class="lwe-warning-banner lwe-wrap-safe" role="alert" aria-live="assertive">{applyError}</p>

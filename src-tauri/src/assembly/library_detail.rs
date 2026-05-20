@@ -1,6 +1,7 @@
 use crate::assembly::compatibility::compatibility_explanation;
 use crate::models::{ItemType, LibraryItemDetail, LibrarySource};
 use crate::policies::shared::cover_policy::{CoverArtSource, cover_art_source};
+use crate::policies::shared::support_policy::supports_first_release;
 use crate::results::desktop::DesktopPageResult;
 use crate::results::workshop::AssessedWorkshopCatalogEntry;
 use crate::services::library_service::LibraryService;
@@ -42,6 +43,7 @@ pub fn assemble_library_detail(
     let tags = entry.project_metadata.tags.clone();
     let assigned_monitor_labels = LibraryService::assigned_monitor_labels(desktop, &id);
     let compatibility = compatibility_explanation(&entry.compatibility);
+    let apply_supported = supports_first_release(entry.entry.project_type);
 
     LibraryItemDetail {
         id,
@@ -50,6 +52,7 @@ pub fn assemble_library_detail(
         cover_path,
         source: LibrarySource::Workshop,
         compatibility,
+        apply_supported,
         monitors_available: desktop_status.monitors_available,
         monitor_discovery_issue,
         desktop_assignment_issue: assignment_issue,
@@ -77,13 +80,13 @@ mod tests {
             AssessedWorkshopCatalogEntry {
                 entry: WorkshopCatalogEntry {
                     workshop_id: 7,
-                    title: "Forest Scene".to_string(),
-                    project_type: WorkshopProjectType::Scene,
+                    title: "Forest Video".to_string(),
+                    project_type: WorkshopProjectType::Video,
                     project_dir: std::path::PathBuf::from("/tmp/7"),
                     cover_path: None,
                     sync_state: WorkshopSyncState::Synced,
                     supported_first_release: true,
-                    library_item_id: Some("scene-7".to_string()),
+                    library_item_id: Some("video-7".to_string()),
                 },
                 compatibility: CompatibilityDecision {
                     level: CompatibilityLevel::FullySupported,
@@ -110,7 +113,7 @@ mod tests {
 
         assert_eq!(
             detail.compatibility.detail,
-            "This item is synchronized locally and available for Library and desktop use."
+            "This video item is synchronized locally and available for Library and desktop use."
         );
         assert!(!detail.desktop_assignments_available);
         assert_eq!(
@@ -126,19 +129,19 @@ mod tests {
     #[test]
     fn desktop_apply_flow_library_detail_includes_assigned_monitor_labels() {
         let mut library_item_assignments = std::collections::BTreeMap::new();
-        library_item_assignments.insert("scene-7".to_string(), vec!["Primary".to_string()]);
+        library_item_assignments.insert("video-7".to_string(), vec!["Primary".to_string()]);
 
         let detail = assemble_library_detail(
             AssessedWorkshopCatalogEntry {
                 entry: WorkshopCatalogEntry {
                     workshop_id: 7,
-                    title: "Forest Scene".to_string(),
-                    project_type: WorkshopProjectType::Scene,
+                    title: "Forest Video".to_string(),
+                    project_type: WorkshopProjectType::Video,
                     project_dir: std::path::PathBuf::from("/tmp/7"),
                     cover_path: None,
                     sync_state: WorkshopSyncState::Synced,
                     supported_first_release: true,
-                    library_item_id: Some("scene-7".to_string()),
+                    library_item_id: Some("video-7".to_string()),
                 },
                 compatibility: CompatibilityDecision {
                     level: CompatibilityLevel::FullySupported,

@@ -23,10 +23,11 @@ describe('LibraryDetailPanel', () => {
             reasonCode: 'ready_for_library',
             summaryCopy: 'Ready to use',
             headline: 'Ready to use',
-            detail: 'This item is synchronized locally and available for Library and desktop use.',
+            detail: 'This video item is synchronized locally and available for Library and desktop use.',
             nextStep: 'none',
             nextStepCopy: null
           },
+          applySupported: true,
           monitorsAvailable: false,
           monitorDiscoveryIssue: 'Monitor discovery is unavailable.',
           desktopAssignmentIssue: 'Desktop assignments are unavailable.',
@@ -59,10 +60,11 @@ describe('LibraryDetailPanel', () => {
             reasonCode: 'ready_for_library',
             summaryCopy: 'Ready to use',
             headline: 'Ready to use',
-            detail: 'This item is synchronized locally and available for Library and desktop use.',
+            detail: 'This video item is synchronized locally and available for Library and desktop use.',
             nextStep: 'none',
             nextStepCopy: null
           },
+          applySupported: true,
           monitorsAvailable: true,
           monitorDiscoveryIssue: null,
           desktopAssignmentIssue: null,
@@ -93,10 +95,11 @@ describe('LibraryDetailPanel', () => {
             reasonCode: 'ready_for_library',
             summaryCopy: 'Ready to use',
             headline: 'Ready to use',
-            detail: 'This item is synchronized locally and available for Library and desktop use.',
+            detail: 'This video item is synchronized locally and available for Library and desktop use.',
             nextStep: 'none',
             nextStepCopy: null
           },
+          applySupported: true,
           monitorsAvailable: true,
           monitorDiscoveryIssue: null,
           desktopAssignmentIssue: null,
@@ -110,6 +113,53 @@ describe('LibraryDetailPanel', () => {
 
     expect(body).toContain('Apply');
     expect(body).toContain('Apply this item to a monitor');
+  });
+
+  it('explains and disables apply controls for recognized items without runtime support', () => {
+    const { body } = render(LibraryDetailPanel, {
+      props: {
+        detail: {
+          id: 'scene-1',
+          title: 'Forest Scene',
+          itemType: 'scene',
+          coverPath: null,
+          source: 'workshop',
+          compatibility: {
+            badge: 'partially_supported',
+            reasonCode: 'recognized_but_runtime_unsupported',
+            summaryCopy: 'Recognized, runtime pending',
+            headline: 'Recognized, runtime pending',
+            detail: 'LWE recognizes this item for Library and compatibility reporting, but the current verified runtime path only applies video wallpapers.',
+            nextStep: 'wait_for_future_support',
+            nextStepCopy: 'This item needs future runtime support before it can be applied.'
+          },
+          applySupported: false,
+          monitorsAvailable: true,
+          monitorDiscoveryIssue: null,
+          desktopAssignmentIssue: null,
+          desktopAssignmentsAvailable: true,
+          assignedMonitorLabels: [],
+          description: null,
+          tags: []
+        },
+        monitors: [
+          {
+            monitorId: 'DISPLAY-1',
+            displayName: 'Primary',
+            resolution: '1920x1080',
+            currentWallpaperTitle: null,
+            currentCoverPath: null,
+            clearSupported: false,
+            runtimeStatus: 'idle'
+          }
+        ],
+        selectedMonitorId: 'DISPLAY-1',
+        applyDisabled: true
+      }
+    });
+
+    expect(body).toContain('current verified runtime can only apply video wallpapers');
+    expect(body).toContain('disabled');
   });
 
   it('renders apply errors inline without replacing the populated detail layout', () => {
@@ -126,10 +176,11 @@ describe('LibraryDetailPanel', () => {
             reasonCode: 'ready_for_library',
             summaryCopy: 'Ready to use',
             headline: 'Ready to use',
-            detail: 'This item is synchronized locally and available for Library and desktop use.',
+            detail: 'This video item is synchronized locally and available for Library and desktop use.',
             nextStep: 'none',
             nextStepCopy: null
           },
+          applySupported: true,
           monitorsAvailable: true,
           monitorDiscoveryIssue: null,
           desktopAssignmentIssue: null,
@@ -162,10 +213,11 @@ describe('LibraryDetailPanel', () => {
             reasonCode: 'ready_for_library',
             summaryCopy: 'Ready to use',
             headline: 'Ready to use',
-            detail: 'This item is synchronized locally and available for Library and desktop use.',
+            detail: 'This video item is synchronized locally and available for Library and desktop use.',
             nextStep: 'none',
             nextStepCopy: null
           },
+          applySupported: true,
           monitorsAvailable: true,
           monitorDiscoveryIssue: null,
           desktopAssignmentIssue: null,
@@ -250,10 +302,11 @@ describe('LibraryDetailPanel', () => {
             reasonCode: 'ready_for_library',
             summaryCopy: 'Ready to use',
             headline: 'Ready to use',
-            detail: 'This item is synchronized locally and available for Library and desktop use.',
+            detail: 'This video item is synchronized locally and available for Library and desktop use.',
             nextStep: 'none',
             nextStepCopy: null
           },
+          applySupported: true,
           monitorsAvailable: true,
           monitorDiscoveryIssue: null,
           desktopAssignmentIssue: null,

@@ -25,11 +25,33 @@ pub fn load_library_item_detail(item_id: String) -> Result<LibraryItemDetail, St
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::assembly::library_page::assemble_library_page;
+    use crate::results::desktop::DesktopPageResult;
+    use crate::results::library::LibraryProjection;
+    use std::collections::BTreeMap;
 
     #[test]
     fn desktop_apply_flow_library_page_reuses_desktop_state_in_snapshot() {
-        let snapshot = load_library_page().unwrap();
+        let projection = LibraryProjection {
+            entries: Vec::new(),
+            source_catalog_count: 1,
+        };
+        let desktop = DesktopPageResult {
+            monitors: Vec::new(),
+            assignments: BTreeMap::new(),
+            resolved_assignments: BTreeMap::new(),
+            library_item_assignments: BTreeMap::new(),
+            running_outputs: Default::default(),
+            restore_issues: Vec::new(),
+            runtime_issue: None,
+            monitors_available: true,
+            monitor_discovery_issue: None,
+            persistence_issue: None,
+            assignments_available: true,
+            stale: false,
+        };
+
+        let snapshot = assemble_library_page(projection, &desktop);
 
         assert!(snapshot.desktop_assignment_issue.is_none());
         assert!(snapshot.desktop_assignments_available);

@@ -14,6 +14,7 @@ LWE 是一个 Linux 桌面应用，用于浏览、管理、检查、导入并应
 ## 贡献者文档
 
 - [项目概览](./contributing/project.md)：产品范围、架构、发布模型和活跃路径。
+- [近期路线图](./contributing/roadmap.md)：后续开发的维护中优先级。
 - [贡献指南](./contributing/guide.md)：开发环境、检查项、文档政策和产品变更工作流。
 
 ## 当前支持范围

@@ -14,6 +14,7 @@ pub enum CompatibilityLevel {
 #[serde(rename_all = "snake_case")]
 pub enum CompatibilityReason {
     ReadyForLibrary,
+    RecognizedButRuntimeUnsupported,
     MissingProjectMetadata,
     MissingPrimaryAsset,
     UnsupportedWebItem,
@@ -38,7 +39,8 @@ pub struct CompatibilityDecision {
 }
 
 pub fn compatibility_decision(entry: &WorkshopCatalogEntry) -> CompatibilityDecision {
-    let supported_first_release = supports_first_release(entry.project_type);
+    let supported_first_release =
+        entry.supported_first_release && supports_first_release(entry.project_type);
 
     match (
         supported_first_release,
@@ -50,20 +52,30 @@ pub fn compatibility_decision(entry: &WorkshopCatalogEntry) -> CompatibilityDeci
             reason: CompatibilityReason::ReadyForLibrary,
             next_step: CompatibilityNextStep::None,
         },
+        (false, WorkshopSyncState::Synced, WorkshopProjectType::Scene) => CompatibilityDecision {
+            level: CompatibilityLevel::PartiallySupported,
+            reason: CompatibilityReason::RecognizedButRuntimeUnsupported,
+            next_step: CompatibilityNextStep::WaitForFutureSupport,
+        },
         (_, WorkshopSyncState::MissingProjectFile, _) => CompatibilityDecision {
             level: CompatibilityLevel::Unsupported,
             reason: CompatibilityReason::MissingProjectMetadata,
             next_step: CompatibilityNextStep::ResyncWorkshopItem,
         },
-        (
-            _,
-            WorkshopSyncState::MissingPrimaryAsset,
-            WorkshopProjectType::Video | WorkshopProjectType::Scene,
-        ) => CompatibilityDecision {
-            level: CompatibilityLevel::PartiallySupported,
-            reason: CompatibilityReason::MissingPrimaryAsset,
-            next_step: CompatibilityNextStep::ResyncWorkshopItem,
-        },
+        (_, WorkshopSyncState::MissingPrimaryAsset, WorkshopProjectType::Video) => {
+            CompatibilityDecision {
+                level: CompatibilityLevel::PartiallySupported,
+                reason: CompatibilityReason::MissingPrimaryAsset,
+                next_step: CompatibilityNextStep::ResyncWorkshopItem,
+            }
+        }
+        (_, WorkshopSyncState::MissingPrimaryAsset, WorkshopProjectType::Scene) => {
+            CompatibilityDecision {
+                level: CompatibilityLevel::PartiallySupported,
+                reason: CompatibilityReason::RecognizedButRuntimeUnsupported,
+                next_step: CompatibilityNextStep::WaitForFutureSupport,
+            }
+        }
         (_, WorkshopSyncState::UnsupportedType, WorkshopProjectType::Web) => {
             CompatibilityDecision {
                 level: CompatibilityLevel::Unsupported,
@@ -125,11 +137,57 @@ mod tests {
     }
 
     #[test]
+    fn synced_scene_is_recognized_without_claiming_runtime_support() {
+        let entry = WorkshopCatalogEntry {
+            workshop_id: 78,
+            title: "Scene".to_string(),
+            project_type: WorkshopProjectType::Scene,
+            project_dir: PathBuf::from("/tmp/78"),
+            cover_path: None,
+            sync_state: WorkshopSyncState::Synced,
+            supported_first_release: false,
+            library_item_id: Some("scene-78".to_string()),
+        };
+
+        let decision = compatibility_decision(&entry);
+
+        assert_eq!(decision.level, CompatibilityLevel::PartiallySupported);
+        assert_eq!(
+            decision.reason,
+            CompatibilityReason::RecognizedButRuntimeUnsupported
+        );
+        assert_eq!(
+            decision.next_step,
+            CompatibilityNextStep::WaitForFutureSupport
+        );
+    }
+
+    #[test]
+    fn synced_video_is_ready_for_runtime_use() {
+        let entry = WorkshopCatalogEntry {
+            workshop_id: 79,
+            title: "Video".to_string(),
+            project_type: WorkshopProjectType::Video,
+            project_dir: PathBuf::from("/tmp/79"),
+            cover_path: None,
+            sync_state: WorkshopSyncState::Synced,
+            supported_first_release: true,
+            library_item_id: Some("video-79".to_string()),
+        };
+
+        let decision = compatibility_decision(&entry);
+
+        assert_eq!(decision.level, CompatibilityLevel::FullySupported);
+        assert_eq!(decision.reason, CompatibilityReason::ReadyForLibrary);
+        assert_eq!(decision.next_step, CompatibilityNextStep::None);
+    }
+
+    #[test]
     fn compatibility_decision_exposes_structured_reason_and_guidance() {
         let entry = WorkshopCatalogEntry {
             workshop_id: 9,
-            title: "Broken Scene".to_string(),
-            project_type: WorkshopProjectType::Scene,
+            title: "Broken Video".to_string(),
+            project_type: WorkshopProjectType::Video,
             project_dir: std::path::PathBuf::from("/tmp/9"),
             cover_path: None,
             sync_state: WorkshopSyncState::MissingPrimaryAsset,
@@ -144,6 +202,32 @@ mod tests {
         assert_eq!(
             decision.next_step,
             CompatibilityNextStep::ResyncWorkshopItem
+        );
+    }
+
+    #[test]
+    fn missing_asset_scene_still_prefers_runtime_limitation_guidance() {
+        let entry = WorkshopCatalogEntry {
+            workshop_id: 10,
+            title: "Broken Scene".to_string(),
+            project_type: WorkshopProjectType::Scene,
+            project_dir: std::path::PathBuf::from("/tmp/10"),
+            cover_path: None,
+            sync_state: WorkshopSyncState::MissingPrimaryAsset,
+            supported_first_release: false,
+            library_item_id: None,
+        };
+
+        let decision = compatibility_decision(&entry);
+
+        assert_eq!(decision.level, CompatibilityLevel::PartiallySupported);
+        assert_eq!(
+            decision.reason,
+            CompatibilityReason::RecognizedButRuntimeUnsupported
+        );
+        assert_eq!(
+            decision.next_step,
+            CompatibilityNextStep::WaitForFutureSupport
         );
     }
 

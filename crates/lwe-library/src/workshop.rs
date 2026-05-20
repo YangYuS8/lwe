@@ -351,13 +351,14 @@ impl WorkshopScanner {
                     }
                     WorkshopProjectType::Web | WorkshopProjectType::Other => None,
                 };
-                let supported_first_release = parsed_item.is_some();
+                let supported_first_release =
+                    project_type == WorkshopProjectType::Video && parsed_item.is_some();
                 let sync_state = match project_type {
                     WorkshopProjectType::Web | WorkshopProjectType::Other => {
                         WorkshopSyncState::UnsupportedType
                     }
                     WorkshopProjectType::Video | WorkshopProjectType::Scene => {
-                        if supported_first_release {
+                        if parsed_item.is_some() {
                             WorkshopSyncState::Synced
                         } else {
                             WorkshopSyncState::MissingPrimaryAsset
@@ -459,7 +460,8 @@ impl WorkshopScanner {
 
         let project = WeProject::load(item_path)?;
 
-        // Only support video and scene types for now
+        // Recognize video and scene projects for local Library/catalog workflows.
+        // Runtime support is narrower and currently video-first.
         if !project.is_supported() {
             debug!("  ⏭️ Skipping unsupported type: {}", project.project_type);
             return Ok(None);

@@ -190,6 +190,7 @@ pub struct LibraryItemSummary {
     pub age_rating: WorkshopAgeRating,
     pub source: LibrarySource,
     pub compatibility: CompatibilitySummaryModel,
+    pub apply_supported: bool,
     pub favorite: bool,
     pub assigned_monitor_labels: Vec<String>,
 }
@@ -217,6 +218,7 @@ pub struct LibraryItemDetail {
     pub cover_path: Option<String>,
     pub source: LibrarySource,
     pub compatibility: CompatibilityExplanationModel,
+    pub apply_supported: bool,
     pub monitors_available: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub monitor_discovery_issue: Option<String>,
@@ -308,15 +310,15 @@ mod tests {
     fn workshop_item_summary_uses_cover_or_placeholder_shape() {
         let item = WorkshopItemSummary {
             id: "42".to_string(),
-            title: "Forest Scene".to_string(),
-            item_type: ItemType::Scene,
+            title: "Forest Video".to_string(),
+            item_type: ItemType::Video,
             cover_path: None,
             sync_status: WorkshopSyncStatus::Synced,
             compatibility: summary_compatibility(),
         };
 
         assert_eq!(item.id, "42");
-        assert_eq!(item.item_type, ItemType::Scene);
+        assert_eq!(item.item_type, ItemType::Video);
         assert!(item.cover_path.is_none());
     }
 
@@ -354,7 +356,7 @@ mod tests {
                 summary_copy: "Ready to use".to_string(),
                 headline: "Ready to use".to_string(),
                 detail:
-                    "This item is synchronized locally and available for Library and desktop use."
+                    "This video item is synchronized locally and available for Library and desktop use."
                         .to_string(),
                 next_step: CompatibilityNextStep::None,
                 next_step_copy: None,
@@ -545,6 +547,7 @@ mod tests {
             age_rating: WorkshopAgeRating::G,
             source: LibrarySource::Workshop,
             compatibility: summary_compatibility(),
+            apply_supported: false,
             favorite: false,
             assigned_monitor_labels: vec!["Primary".to_string()],
         };

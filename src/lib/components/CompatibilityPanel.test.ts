@@ -36,7 +36,7 @@ describe('CompatibilityPanel', () => {
           reasonCode: 'ready_for_library',
           summaryCopy: 'Ready to use',
           headline: 'Ready to use',
-          detail: 'This item is synchronized locally and available for Library and desktop use.',
+          detail: 'This video item is synchronized locally and available for Library and desktop use.',
           nextStep: 'none',
           nextStepCopy: null
         }

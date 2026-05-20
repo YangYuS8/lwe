@@ -42,6 +42,7 @@ export default defineConfig({
             text: 'Contributors',
             items: [
               { text: 'Project overview', link: '/contributing/project' },
+              { text: 'Near-term roadmap', link: '/contributing/roadmap' },
               { text: 'Contributor guide', link: '/contributing/guide' }
             ]
           }
@@ -90,6 +91,7 @@ export default defineConfig({
             text: '贡献者',
             items: [
               { text: '项目概览', link: '/zh/contributing/project' },
+              { text: '近期路线图', link: '/zh/contributing/roadmap' },
               { text: '贡献指南', link: '/zh/contributing/guide' }
             ]
           }

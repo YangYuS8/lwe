@@ -495,7 +495,7 @@
         error={detailError}
         monitors={availableMonitors}
         selectedMonitorId={applyMonitorId}
-        applyDisabled={!selectedDetail || !applyMonitorId}
+        applyDisabled={!selectedDetail || !selectedDetail.applySupported || !applyMonitorId}
         applying={applyLoading}
         {applyError}
         applyMessage={applyMessage}

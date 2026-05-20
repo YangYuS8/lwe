@@ -36,8 +36,10 @@ impl CompatibilityService {
     }
 
     pub fn supports_library_projection(entry: &AssessedWorkshopCatalogEntry) -> bool {
-        entry.compatibility.level == CompatibilityLevel::FullySupported
-            && entry.entry.library_item_id.is_some()
+        matches!(
+            entry.compatibility.level,
+            CompatibilityLevel::FullySupported | CompatibilityLevel::PartiallySupported
+        ) && entry.entry.library_item_id.is_some()
     }
 }
 
@@ -48,22 +50,22 @@ mod tests {
     use lwe_library::{WorkshopProjectType, WorkshopSyncState};
     use std::path::PathBuf;
 
-    fn synced_scene_entry() -> WorkshopCatalogEntry {
+    fn synced_video_entry() -> WorkshopCatalogEntry {
         WorkshopCatalogEntry {
             workshop_id: 42,
-            title: "Forest Scene".to_string(),
-            project_type: WorkshopProjectType::Scene,
+            title: "Forest Video".to_string(),
+            project_type: WorkshopProjectType::Video,
             project_dir: PathBuf::from("/tmp/42"),
             cover_path: None,
             sync_state: WorkshopSyncState::Synced,
             supported_first_release: true,
-            library_item_id: Some("scene-42".to_string()),
+            library_item_id: Some("video-42".to_string()),
         }
     }
 
     #[test]
     fn compatibility_service_assesses_catalog_entries_once_for_service_consumers() {
-        let assessed = CompatibilityService::assess_catalog_entry(synced_scene_entry());
+        let assessed = CompatibilityService::assess_catalog_entry(synced_video_entry());
 
         assert_eq!(
             assessed.compatibility.level,
@@ -77,7 +79,7 @@ mod tests {
 
     #[test]
     fn compatibility_service_uses_assessment_for_library_projection_gate() {
-        let assessed = CompatibilityService::assess_catalog_entry(synced_scene_entry());
+        let assessed = CompatibilityService::assess_catalog_entry(synced_video_entry());
 
         assert!(CompatibilityService::supports_library_projection(&assessed));
     }

@@ -21,7 +21,7 @@ const compatibilitySummary = {
 const compatibilityDetail = {
   ...compatibilitySummary,
   headline: 'Ready to use',
-  detail: 'This item is synchronized locally and available for Library and desktop use.',
+  detail: 'This video item is synchronized locally and available for Library and desktop use.',
   nextStep: 'none' as const,
   nextStepCopy: null
 };
@@ -91,6 +91,7 @@ describe('ui page cache', () => {
           ageRating: 'g',
           source: 'workshop',
           compatibility: compatibilitySummary,
+          applySupported: false,
           favorite: false
         },
         {
@@ -101,6 +102,7 @@ describe('ui page cache', () => {
           ageRating: 'g',
           source: 'workshop',
           compatibility: compatibilitySummary,
+          applySupported: false,
           favorite: false
         }
       ],
@@ -121,6 +123,7 @@ describe('ui page cache', () => {
         coverPath: null,
         source: 'workshop',
         compatibility: compatibilityDetail,
+        applySupported: false,
         monitorsAvailable: false,
         desktopAssignmentIssue: null,
         desktopAssignmentsAvailable: false,

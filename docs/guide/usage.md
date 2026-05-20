@@ -25,9 +25,9 @@ Treat compatibility information as the source of truth for whether a wallpaper s
 
 LWE's product model recognizes common Wallpaper Engine content categories:
 
-- `video`: primary first-release runtime focus;
-- `scene`: recognized where metadata is available, runtime support depends on current implementation status;
-- `web`: recognized for reporting, not a first-release strong runtime target.
+- `video`: primary first-release runtime focus and the only current runnable type on the verified path;
+- `scene`: recognized where metadata is available, but not a first-release runtime target until real support is implemented and verified;
+- `web`: recognized for reporting, not a first-release runtime target.
 
 If the app reports that an item is unsupported or degraded, do not assume it can be fixed by reinstalling the package. It may be outside the current runtime scope.
 

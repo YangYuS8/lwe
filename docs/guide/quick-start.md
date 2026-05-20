@@ -46,5 +46,5 @@ Open **Settings** to change language and theme preferences. LWE targets both Eng
 
 - Video wallpapers are the primary runtime focus.
 - Scene and web wallpapers may be identified for compatibility reporting.
-- Runtime support depends on the compatibility status shown by the app.
+- Scene and web items should be treated as recognized-only unless the app explicitly reports runnable support.
 - Advanced creator tools, cloud/community systems, and broad web wallpaper parity are not first-release goals.

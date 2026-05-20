@@ -33,9 +33,9 @@ describe('library page render', () => {
     setLibrarySnapshot({
       items: [
         {
-          id: 'scene-7',
-          title: 'Forest Scene',
-          itemType: 'scene',
+          id: 'video-7',
+          title: 'Forest Video',
+          itemType: 'video',
           coverPath: null,
           ageRating: 'g',
           source: 'workshop',
@@ -44,11 +44,12 @@ describe('library page render', () => {
             reasonCode: 'ready_for_library',
             summaryCopy: 'Ready to use'
           },
+          applySupported: true,
           favorite: false,
           assignedMonitorLabels: ['Primary', 'DISPLAY-2 (missing)']
         }
       ],
-      selectedItemId: 'scene-7',
+      selectedItemId: 'video-7',
       monitorsAvailable: true,
       monitorDiscoveryIssue: null,
       desktopAssignmentIssue: null,
@@ -57,9 +58,9 @@ describe('library page render', () => {
     });
 
     setLibraryDetail({
-      id: 'scene-7',
-      title: 'Forest Scene',
-      itemType: 'scene',
+      id: 'video-7',
+      title: 'Forest Video',
+      itemType: 'video',
       coverPath: null,
       source: 'workshop',
       compatibility: {
@@ -67,10 +68,11 @@ describe('library page render', () => {
         reasonCode: 'ready_for_library',
         summaryCopy: 'Ready to use',
         headline: 'Ready to use',
-        detail: 'This item is synchronized locally and available for Library and desktop use.',
+        detail: 'This video item is synchronized locally and available for Library and desktop use.',
         nextStep: 'none',
         nextStepCopy: null
       },
+      applySupported: true,
       monitorsAvailable: true,
       monitorDiscoveryIssue: null,
       desktopAssignmentIssue: null,
@@ -117,9 +119,9 @@ describe('library page render', () => {
     setLibrarySnapshot({
       items: [
         {
-          id: 'scene-7',
-          title: 'Forest Scene',
-          itemType: 'scene',
+          id: 'video-7',
+          title: 'Forest Video',
+          itemType: 'video',
           coverPath: null,
           ageRating: 'g',
           source: 'workshop',
@@ -128,11 +130,12 @@ describe('library page render', () => {
             reasonCode: 'ready_for_library',
             summaryCopy: 'Ready to use'
           },
+          applySupported: true,
           favorite: false,
           assignedMonitorLabels: []
         }
       ],
-      selectedItemId: 'scene-7',
+      selectedItemId: 'video-7',
       monitorsAvailable: true,
       monitorDiscoveryIssue: null,
       desktopAssignmentIssue: null,
@@ -141,9 +144,9 @@ describe('library page render', () => {
     });
 
     setLibraryDetail({
-      id: 'scene-7',
-      title: 'Forest Scene',
-      itemType: 'scene',
+      id: 'video-7',
+      title: 'Forest Video',
+      itemType: 'video',
       coverPath: null,
       source: 'workshop',
       compatibility: {
@@ -151,10 +154,11 @@ describe('library page render', () => {
         reasonCode: 'ready_for_library',
         summaryCopy: 'Ready to use',
         headline: 'Ready to use',
-        detail: 'This item is synchronized locally and available for Library and desktop use.',
+        detail: 'This video item is synchronized locally and available for Library and desktop use.',
         nextStep: 'resync_workshop_item',
         nextStepCopy: 'Choose a monitor before applying this item.'
       },
+      applySupported: true,
       monitorsAvailable: true,
       monitorDiscoveryIssue: null,
       desktopAssignmentIssue: null,
@@ -166,8 +170,8 @@ describe('library page render', () => {
 
     const { body } = render(LibraryPage);
 
-    expect(body).toContain('aria-label="选择内容项 Forest Scene"');
-    expect(body).not.toContain('显示 Forest Scene 的快捷操作');
+    expect(body).toContain('aria-label="选择内容项 Forest Video"');
+    expect(body).not.toContain('显示 Forest Video 的快捷操作');
     expect(body).toContain('兼容性');
     expect(body).toContain('下一步：');
     expect(body).toContain('完全支持');

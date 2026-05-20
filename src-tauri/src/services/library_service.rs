@@ -142,7 +142,7 @@ mod tests {
                 assignments: BTreeMap::new(),
                 resolved_assignments: BTreeMap::new(),
                 library_item_assignments: BTreeMap::from([(
-                    "scene-7".to_string(),
+                    "video-7".to_string(),
                     vec!["Primary".to_string(), "DISPLAY-2 (missing)".to_string()],
                 )]),
                 running_outputs: Default::default(),
@@ -154,7 +154,7 @@ mod tests {
                 assignments_available: true,
                 stale: false,
             },
-            "scene-7",
+            "video-7",
         );
 
         assert_eq!(
@@ -196,24 +196,24 @@ mod tests {
         let entry = AssessedWorkshopCatalogEntry {
             entry: lwe_library::WorkshopCatalogEntry {
                 workshop_id: 7,
-                title: "Forest Scene".to_string(),
-                project_type: lwe_library::WorkshopProjectType::Scene,
+                title: "Forest Video".to_string(),
+                project_type: lwe_library::WorkshopProjectType::Video,
                 project_dir: std::path::PathBuf::from("/tmp/7"),
                 cover_path: None,
                 sync_state: lwe_library::WorkshopSyncState::Synced,
                 supported_first_release: true,
-                library_item_id: Some("scene-7".to_string()),
+                library_item_id: Some("video-7".to_string()),
             },
             compatibility: crate::policies::shared::compatibility_policy::compatibility_decision(
                 &lwe_library::WorkshopCatalogEntry {
                     workshop_id: 7,
-                    title: "Forest Scene".to_string(),
-                    project_type: lwe_library::WorkshopProjectType::Scene,
+                    title: "Forest Video".to_string(),
+                    project_type: lwe_library::WorkshopProjectType::Video,
                     project_dir: std::path::PathBuf::from("/tmp/7"),
                     cover_path: None,
                     sync_state: lwe_library::WorkshopSyncState::Synced,
                     supported_first_release: true,
-                    library_item_id: Some("scene-7".to_string()),
+                    library_item_id: Some("video-7".to_string()),
                 },
             ),
             project_metadata: Default::default(),
@@ -224,11 +224,11 @@ mod tests {
                 entries: vec![entry],
                 source_catalog_count: 1,
             },
-            "scene-7",
+            "video-7",
         )
         .unwrap();
 
-        assert_eq!(item.entry.library_item_id.as_deref(), Some("scene-7"));
-        assert_eq!(item.entry.title, "Forest Scene");
+        assert_eq!(item.entry.library_item_id.as_deref(), Some("video-7"));
+        assert_eq!(item.entry.title, "Forest Video");
     }
 }

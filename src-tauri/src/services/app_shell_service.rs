@@ -127,10 +127,10 @@ mod tests {
                 catalog_entries: vec![
                     assessed_entry(
                         1,
-                        "Synced Scene",
-                        WorkshopProjectType::Scene,
+                        "Synced Video",
+                        WorkshopProjectType::Video,
                         WorkshopSyncState::Synced,
-                        Some("scene-1"),
+                        Some("video-1"),
                         CompatibilityDecision {
                             level: CompatibilityLevel::FullySupported,
                             reason: CompatibilityReason::ReadyForLibrary,
@@ -188,10 +188,10 @@ mod tests {
             WorkshopRefreshResult {
                 catalog_entries: vec![assessed_entry(
                     1,
-                    "Synced Scene",
-                    WorkshopProjectType::Scene,
+                    "Synced Video",
+                    WorkshopProjectType::Video,
                     WorkshopSyncState::Synced,
-                    Some("scene-1"),
+                    Some("video-1"),
                     CompatibilityDecision {
                         level: CompatibilityLevel::FullySupported,
                         reason: CompatibilityReason::ReadyForLibrary,

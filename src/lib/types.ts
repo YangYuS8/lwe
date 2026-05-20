@@ -108,6 +108,7 @@ export interface LibraryItemSummary {
   ageRating: WorkshopAgeRating;
   source: LibrarySource;
   compatibility: CompatibilitySummaryModel;
+  applySupported: boolean;
   favorite: boolean;
   assignedMonitorLabels?: string[];
 }
@@ -129,6 +130,7 @@ export interface LibraryItemDetail {
   coverPath: string | null;
   source: LibrarySource;
   compatibility: CompatibilityExplanationModel;
+  applySupported: boolean;
   monitorsAvailable: boolean;
   monitorDiscoveryIssue?: string | null;
   desktopAssignmentIssue?: string | null;
