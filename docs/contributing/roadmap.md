@@ -1,8 +1,8 @@
-# v1 development roadmap
+# v1 version roadmap
 
-This page captures the maintained development direction from the current v0.6.1 release line toward LWE v1. Keep it current: when product scope, verified runtime support, or release priorities change, update this page instead of preserving stale planning notes.
+This page captures the maintained development direction from the current v0.6.1 release line toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
 
-## v1 scope statement
+## v1 target
 
 LWE v1 should be a trustworthy Linux Wallpaper Engine migration app, not a broad runtime-parity claim.
 
@@ -16,194 +16,257 @@ For v1, LWE targets:
 - Wayland with `niri` as the verified desktop target;
 - maintained English and Simplified Chinese user-facing documentation and copy.
 
-## Milestone 1: support matrix and product truth
+## Version sequence
 
-Goal: make the product impossible to misunderstand. Video is runnable on the verified path; scene and web are recognized-only unless future verified runtime support exists.
+| Version | Theme | Primary outcome |
+| --- | --- | --- |
+| v0.7.0 | Support matrix lockdown | Product truth is consistent and tested. |
+| v0.8.0 | Runtime hardening | Video apply, clear, and restore work reliably on `niri`. |
+| v0.8.5 | Library workflow hardening | Daily Library workflows are safe and clear. |
+| v0.9.0 | Workshop clarity | Discovery and Steam sync expectations are honest. |
+| v0.9.5 | Diagnostics and release prep | Supportability and release posture are ready. |
+| v1.0.0-rc.1 | First release candidate | Scope is frozen and validated end-to-end. |
+| v1.0.0-rc.2 | Optional blocker-fix candidate | Only if rc.1 finds release blockers. |
+| v1.0.0 | Stable v1 | Honest, reliable video-first release. |
 
-Priorities:
+## v0.7.0: support matrix lockdown
 
-1. Keep one shared support policy authoritative across compatibility, Library, Workshop, Desktop, and docs.
-2. Ensure synced video reports runnable support.
-3. Ensure synced scene reports recognized/runtime-unsupported support, never ready-to-apply support.
-4. Ensure web reports recognized/unsupported runtime status.
-5. Keep Library semantics explicit: recognized local items may appear in Library, but Apply must be enabled only for runnable items.
-6. Remove or rewrite tests and examples that imply scene runtime support.
+Theme: make product truth consistent everywhere.
+
+Deliverables:
+
+- Authoritative support matrix:
+  - video is the runnable first-release target;
+  - scene is recognized for metadata and compatibility reporting only;
+  - web is recognized for reporting only;
+  - other/application content is unsupported for runtime workflows.
+- Compatibility policy, Library projection, Workshop detail, Desktop apply, and docs aligned.
+- Scene no longer appears as fully supported or ready to apply.
+- Apply is enabled only for runnable video Library items, or disabled with an explanation for recognized-only items.
+- English and Simplified Chinese docs updated together.
 
 Acceptance criteria:
 
-- Synced video is reported as ready for Library and desktop runtime use.
-- Synced scene is reported as recognized but runtime-unsupported.
-- Web items are not presented as runnable.
-- Desktop apply rejects non-video before runtime invocation with a clear reason.
-- Library does not enable Apply for non-runnable items.
-- English and Simplified Chinese docs describe the same support matrix.
+- Synced video reports runnable support.
+- Synced scene reports recognized/runtime-unsupported support.
+- Web reports unsupported runtime status.
+- Desktop apply rejects non-video with a clear reason before backend invocation.
 - Tests cover video, scene, web, missing metadata, and missing primary asset behavior.
+- CI tests do not require Steam or a real desktop session.
 
-Main risks:
+Must not claim:
 
-- Support truth can drift between catalog data, compatibility policy, UI labels, and documentation.
-- “Partially supported” can mislead users if it means recognized rather than runnable.
-- Library projection behavior affects whether users can inspect recognized-but-not-runnable local content.
+- scene runtime support;
+- web runtime support;
+- general Wayland support;
+- compositor support beyond the verified Wayland + `niri` path.
 
-## Milestone 2: reliable video runtime on `niri`
+## v0.8.0: reliable video runtime on `niri`
 
-Goal: make one runtime path dependable: apply, restore, and clear video wallpapers on Wayland with `niri`.
+Theme: make the current runtime path dependable.
 
-Priorities:
+Deliverables:
 
-1. Harden apply-to-monitor flow for supported video items.
-2. Harden per-monitor clear behavior.
-3. Preserve wallpapers on other monitors when clearing one output.
-4. Restore saved assignments on app startup.
-5. Surface runtime/backend failures in Desktop with actionable messages.
-6. Keep real desktop tests opt-in rather than CI-required.
+- Harden video apply to a selected monitor.
+- Harden per-monitor clear.
+- Preserve wallpapers on other outputs when clearing one monitor.
+- Restore saved assignments on startup.
+- Improve Desktop runtime status for active outputs, stale state, restore failures, and backend initialization/runtime errors.
+- Keep a documented manual real-desktop validation checklist for runtime changes.
 
-Acceptance criteria on a verified `niri` machine:
+Acceptance criteria on verified Wayland + `niri`:
 
-1. LWE discovers at least one active monitor.
-2. A user can apply a synced video wallpaper from Library.
-3. The desktop visibly changes.
-4. Multi-monitor apply works when multiple monitors exist.
-5. Clearing one monitor does not stop other monitor wallpapers.
-6. Restarting LWE restores saved assignments or shows explicit restore failures.
-7. Clearing all assignments prevents later restore.
-8. Missing Wayland globals, EGL failure, mpv failure, missing video files, and output mismatch produce visible, non-generic errors.
+- LWE discovers active monitors.
+- A synced video wallpaper applies visibly to one monitor.
+- Multi-monitor apply works when hardware is available.
+- Clearing one monitor does not stop wallpapers on other monitors.
+- Restart restores saved assignments or reports explicit restore failure.
+- Missing video file, output mismatch, Wayland layer-shell failure, EGL failure, and backend timeout produce actionable errors.
 
-Main risks:
+Must not claim:
 
-- CI cannot validate real compositor behavior.
-- `niri` output IDs and stable monitor identities can differ across sessions or hardware.
-- Runtime status can become stale when the backend dies or compositor state changes.
+- runtime reliability outside `niri`;
+- runtime support for scene or web;
+- CI-verified desktop runtime behavior unless a verified real-desktop runner exists.
 
-## Milestone 3: Library-first daily workflow
+## v0.8.5: Library workflow hardening
 
-Goal: make Library the practical daily surface for selecting, inspecting, applying, and managing local content.
+Theme: make Library trustworthy for daily use.
 
-Priorities:
+Deliverables:
 
-1. Show clear compatibility and runnable status on cards and detail panels.
-2. Keep Apply enabled only for runnable items with an available monitor.
-3. Show monitor assignment state accurately after apply, clear, and restore.
-4. Preserve current selection and detail state after refresh/apply/clear where possible.
-5. Improve empty, stale, unavailable, and degraded states.
-6. Keep filtering and pagination predictable for large local Workshop libraries.
-
-Acceptance criteria:
-
-- Library clearly distinguishes runnable video, recognized runtime-unsupported scene/web, missing metadata, and missing primary asset states.
-- Failed apply does not destroy current Library context.
-- Assigned monitor labels stay consistent after apply, clear, and restore.
-- Library tests do not depend on local Steam installation in CI.
-
-Main risks:
-
-- Including recognized scene/web in Library requires strong Apply gating and clear copy.
-- Excluding scene/web from Library would make recognized local content harder to inspect.
-- Large Workshop folders may expose scan or rendering performance issues.
-
-## Milestone 4: Workshop discovery and sync clarity
-
-Goal: keep Workshop as discovery and acquisition orchestration, not a replacement for Steam.
-
-Priorities:
-
-1. Make Steam Web API key setup clear.
-2. Keep online search and filtering usable.
-3. Explain that Steam handles subscription, download, and synchronization.
-4. Improve local sync status explanations: synced, missing project metadata, missing primary asset, unsupported type.
-5. Keep “Open in Steam” reliable and documented.
+- Library cards and detail panels clearly show runtime status.
+- Apply controls are gated by runnable state and monitor availability.
+- Assigned monitor labels stay accurate after apply, clear, and restore.
+- Refresh/apply/clear flows preserve user context where possible.
+- Empty, stale, unavailable, and partial states are understandable.
+- Large-library pagination and filtering remain predictable.
 
 Acceptance criteria:
 
-- Missing API key produces clear Settings guidance.
-- Online search does not imply local availability.
-- Workshop detail explains the next step for each compatibility reason.
-- Malformed `project.json` files do not fail the whole local scan.
-- Online parsing and type-inference tests do not call Steam network APIs.
+- Runnable video items are easy to identify and apply.
+- Recognized-only scene/web items, if shown in Library, cannot be applied and explain why.
+- Failed apply does not replace populated detail UI with a dead state.
+- Library command/unit tests do not depend on Steam being installed.
+- Library state updates correctly after Desktop invalidations.
 
-Main risks:
+Must not claim:
 
-- Steam metadata is heuristic and can misclassify type or age.
-- Users may expect LWE to download Workshop items directly.
-- Steam install paths and package variants can differ across distributions.
+- all Library items are runnable unless the UI enforces that;
+- recognized scene/web items can be made runnable merely by resyncing.
 
-## Milestone 5: Settings, persistence, and diagnostics
+## v0.9.0: Workshop and sync clarity
 
-Goal: give users enough visibility to configure LWE and report useful issues.
+Theme: make discovery and acquisition expectations honest.
 
-Priorities:
+Deliverables:
 
-1. Persist language, theme, Steam API key, launch-on-login preference, and Workshop filters.
-2. Report persistence failures without losing the current app context.
-3. Add a diagnostics surface for issue reports.
-4. Mask sensitive values such as API keys.
-5. Keep English and Simplified Chinese copy in sync.
+- Workshop search and filtering polished around Steam Web API key setup.
+- Local Workshop refresh explains synced, missing `project.json`, missing primary asset, and unsupported runtime type states.
+- “Open in Steam” clearly acts as the acquisition/subscription handoff.
+- Settings clearly shows Steam integration state.
+- Online search results do not imply local sync or runtime support.
 
-Diagnostics should prefer observable facts over guesses, including:
+Acceptance criteria:
+
+- Missing Steam API key points users to Settings.
+- Steam not installed, Wallpaper Engine missing, and no Workshop content produce distinct messages where possible.
+- Malformed project metadata does not fail the whole catalog scan.
+- Scene/web search results are labeled as recognized/unsupported for runtime.
+- Network and parsing tests avoid real Steam API calls.
+
+Must not claim:
+
+- LWE directly downloads Workshop content;
+- search result availability means local content is synchronized;
+- Steam metadata inference is authoritative.
+
+## v0.9.5: diagnostics, persistence, and release candidate prep
+
+Theme: prepare for supportable v1 release candidates.
+
+Deliverables:
+
+- User-copyable diagnostics surface.
+- Settings persistence verified for language, theme, Steam API key, launch-on-login preference, and Workshop filters.
+- Sensitive values masked.
+- Release smoke checklist added to docs.
+- Package and release artifact expectations documented.
+
+Diagnostics should include:
 
 - LWE version and package type when available;
-- OS, session, and compositor hints when available;
+- OS, session, and compositor hints where available;
 - monitor discovery result;
-- runtime backend status or last initialization error;
+- runtime backend status or last backend initialization error;
 - Steam discovery result;
-- Wallpaper Engine Workshop path availability;
-- Library item counts by compatibility/runtime status;
-- support-scope reminder: video runtime on the verified `niri` path.
+- Wallpaper Engine Workshop content availability;
+- Library counts by compatibility/runtime state;
+- current support-scope reminder.
 
 Acceptance criteria:
 
-- Settings survive restart.
-- Steam API keys are not exposed in diagnostics or copyable logs.
-- Launch-on-login unavailable state is visible and non-fatal.
-- Diagnostics can be copied into issue reports.
-- Settings tests remain deterministic and do not require desktop/session services.
+- Settings persist across restart.
+- Diagnostics do not expose the Steam API key.
+- Launch-on-login unavailable state is non-fatal and visible.
+- `.deb`, `.rpm`, `.AppImage`, AUR stable, and AUR git release paths are documented.
+- Required CI checks are documented and passing.
+- Manual runtime validation is required for runtime-affecting release candidates.
 
-Main risks:
+Must not claim:
 
-- Diagnostics can accidentally expose local paths or secrets.
-- Launch-on-login behavior differs by desktop/session/package format.
-- Compositor detection can be unreliable; do not overstate guesses.
+- diagnostics are perfect environment detection;
+- launch-on-login works on every desktop/session/package format;
+- package install success guarantees runtime support.
 
-## Milestone 6: release hardening and v1 candidate
+## v1.0.0-rc.1: first release candidate
 
-Goal: make v1 releasable and supportable.
+Theme: freeze scope and validate end-to-end.
 
-Priorities:
+Deliverables:
 
-1. Keep CI green for frontend, docs, Rust formatting, linting, checking, and tests.
-2. Verify `.deb`, `.rpm`, `.AppImage`, AUR `lwe`, and AUR `lwe-git` outputs.
-3. Add release smoke checks where practical.
-4. Maintain release notes that state support scope accurately.
-5. Require manual real-desktop acceptance for runtime-affecting v1 candidates.
+- Feature freeze except blockers.
+- Full docs review in English and Simplified Chinese.
+- Release notes draft with explicit support scope.
+- Manual `niri` runtime acceptance pass.
+- Known limitations page or section updated.
 
-v1 release acceptance criteria:
+Acceptance criteria:
 
-- Documentation builds in English and Simplified Chinese.
-- No documentation implies scene or web runtime support.
-- Fresh install and quick-start paths are documented.
-- Quick start works on a verified `niri` machine.
-- Video apply, clear, and restore are manually verified.
+- Full CI suite passes:
+  - `pnpm check`
+  - `pnpm test`
+  - `pnpm build`
+  - `pnpm docs:build`
+  - `cargo fmt --all -- --check`
+  - `cargo clippy --workspace --all-targets -- -D warnings`
+  - `cargo check --workspace`
+  - `cargo test --workspace`
+- Fresh install → Settings → Workshop/Library → Apply video → Clear → Restart restore path manually validated.
+- Scene/web recognized-only behavior manually checked.
+- No user-facing copy claims unsupported runtime behavior.
+- Release artifacts build successfully.
+
+Must not claim:
+
+- v1 final stability;
+- broad compositor support;
+- scene/web runtime support.
+
+## v1.0.0-rc.2: optional blocker-fix candidate
+
+Theme: only fix release blockers found in rc.1.
+
+Allowed work:
+
+- data loss fixes;
+- broken install or launch fixes;
+- broken video apply/clear/restore fixes on verified `niri`;
+- incorrect support-scope claim fixes;
+- package or release artifact blocker fixes;
+- severe documentation mismatch fixes.
+
+Acceptance criteria:
+
+- rc.1 blockers are resolved.
+- No new feature scope is added.
+- Manual validation is rerun for affected areas.
+
+Must not claim new capabilities beyond rc.1 scope.
+
+## v1.0.0: stable v1
+
+Theme: reliable, honest first stable release.
+
+v1 deliverables:
+
+- Video Wallpaper Engine wallpapers runnable on the verified Wayland + `niri` path.
+- Scene/web recognized for compatibility reporting but runtime-unsupported.
+- Library-first daily workflow.
+- Workshop discovery/acquisition handoff through Steam.
+- Desktop monitor apply/clear/restore flow.
+- Settings persistence and diagnostics.
+- English and Simplified Chinese maintained docs.
+- Release artifacts: `.deb`, `.rpm`, `.AppImage`, AUR `lwe`, and AUR `lwe-git`.
+
+v1 acceptance criteria:
+
+- Full CI passes.
+- Docs build passes.
+- Fresh install path is documented and verified.
+- Manual real-desktop `niri` acceptance passes.
 - Unsupported scene/web behavior is clear and non-runnable.
-- Release artifacts are produced and named as expected.
 - Known limitations are documented.
+- Release notes accurately describe scope.
 
-## v1 non-goals
+v1 must not claim:
 
-Do not include these in v1 unless separately implemented, tested, and documented:
-
-- full scene wallpaper runtime;
-- web wallpaper runtime parity;
+- full Wallpaper Engine compatibility;
+- scene wallpaper runtime;
+- web wallpaper runtime;
 - creator/editor tools;
-- cloud or community features;
-- advanced automation rules;
-- daemon-first architecture;
-- general Wayland support claims;
-- GNOME, KDE, Hyprland, sway, or other compositor support claims without real validation;
-- direct replacement for Steam Workshop download/subscription behavior.
-
-## Maintenance rules
-
-- Keep user-facing behavior aligned with the documented support scope.
-- Keep English and Simplified Chinese documentation in sync.
-- Treat compatibility, import paths, runtime behavior, and persisted state changes as test-worthy.
-- Do not archive obsolete planning notes in published docs; update or remove stale roadmap content.
+- cloud/community features;
+- advanced automation;
+- general Wayland support;
+- GNOME/KDE/Hyprland/sway support without explicit verified testing;
+- LWE-managed Workshop downloading independent of Steam.
