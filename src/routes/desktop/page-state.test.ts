@@ -69,4 +69,25 @@ describe('desktop page state', () => {
       emptyMessage: 'No monitors are available in the current snapshot.'
     });
   });
+
+  it('includes runtime issues before restore issues in the visible desktop issue list', () => {
+    expect(
+      resolveDesktopPageState({
+        monitors: [],
+        missingMonitorRestores: [],
+        restoreIssues: ['Saved assignment could not be restored.'],
+        runtimeIssue: 'Desktop runtime status is unavailable.',
+        monitorsAvailable: true,
+        monitorDiscoveryIssue: null,
+        persistenceIssue: null,
+        assignmentsAvailable: true,
+        stale: true
+      }, copy)
+    ).toEqual({
+      monitorAvailabilityLabel: 'yes',
+      assignmentAvailabilityLabel: 'yes',
+      issueMessages: ['Desktop runtime status is unavailable.', 'Saved assignment could not be restored.'],
+      emptyMessage: 'No monitors are available in the current snapshot.'
+    });
+  });
 });

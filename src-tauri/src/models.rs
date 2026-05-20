@@ -257,6 +257,8 @@ pub struct DesktopPageSnapshot {
     pub persistence_issue: Option<String>,
     pub assignments_available: bool,
     pub restore_issues: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_issue: Option<String>,
     pub stale: bool,
 }
 
@@ -531,6 +533,7 @@ mod tests {
                 "Saved assignment for missing monitor DISPLAY-2 still points to Forest Scene (scene-7)."
                     .to_string(),
             ],
+            runtime_issue: None,
             stale: false,
         };
 

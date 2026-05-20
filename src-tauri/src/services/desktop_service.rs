@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Mutex, OnceLock};
@@ -30,9 +30,14 @@ struct RunningDesktopApplyBackend {
 }
 
 static DESKTOP_APPLY_BACKEND: OnceLock<Mutex<Option<RunningDesktopApplyBackend>>> = OnceLock::new();
+static STARTUP_RESTORE_ISSUES: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 
 fn desktop_apply_backend_slot() -> &'static Mutex<Option<RunningDesktopApplyBackend>> {
     DESKTOP_APPLY_BACKEND.get_or_init(|| Mutex::new(None))
+}
+
+fn startup_restore_issues_slot() -> &'static Mutex<Vec<String>> {
+    STARTUP_RESTORE_ISSUES.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 #[cfg(test)]
@@ -58,13 +63,30 @@ impl DesktopService {
 
     pub fn restore_saved_assignments() -> Result<(), String> {
         let page = Self::load_page()?;
-        for issue in Self::restore_saved_assignments_with(&page, |monitor, item_id| {
+        let issues = Self::restore_saved_assignments_with(&page, |monitor, item_id| {
             Self::apply_with_real_backend(monitor, item_id)
-        }) {
+        });
+
+        for issue in &issues {
             eprintln!("desktop restore skipped: {issue}");
         }
 
+        Self::record_startup_restore_issues(issues);
+
         Ok(())
+    }
+
+    fn record_startup_restore_issues(issues: Vec<String>) {
+        if let Ok(mut stored) = startup_restore_issues_slot().lock() {
+            *stored = issues;
+        }
+    }
+
+    fn take_startup_restore_issues() -> Vec<String> {
+        startup_restore_issues_slot()
+            .lock()
+            .map(|mut issues| std::mem::take(&mut *issues))
+            .unwrap_or_default()
     }
 
     pub(crate) fn load_page_with_projection(
@@ -76,11 +98,22 @@ impl DesktopService {
             Err(reason) => DesktopPersistenceLoad::Unavailable { reason },
         };
 
-        Ok(Self::build_page_result(
-            monitors,
-            assignments,
-            library_projection,
-        ))
+        let mut result = Self::build_page_result(monitors, assignments, library_projection);
+
+        let (running_outputs, runtime_issue) = Self::runtime_running_outputs();
+        result.running_outputs = running_outputs;
+        result.runtime_issue = runtime_issue;
+
+        for issue in Self::take_startup_restore_issues() {
+            if !result.restore_issues.contains(&issue) {
+                result.restore_issues.push(issue);
+            }
+        }
+
+        result.stale =
+            result.stale || result.runtime_issue.is_some() || !result.restore_issues.is_empty();
+
+        Ok(result)
     }
 
     fn library_item_titles(projection: LibraryProjection) -> BTreeMap<String, String> {
@@ -255,12 +288,71 @@ impl DesktopService {
             assignments,
             resolved_assignments,
             library_item_assignments,
+            running_outputs: BTreeSet::new(),
             restore_issues,
+            runtime_issue: None,
             monitors_available,
             monitor_discovery_issue,
             persistence_issue,
             assignments_available,
             stale,
+        }
+    }
+
+    fn runtime_running_outputs() -> (BTreeSet<String>, Option<String>) {
+        match Self::runtime_running_outputs_result() {
+            Ok(outputs) => (outputs, None),
+            Err(reason) => (BTreeSet::new(), Some(reason)),
+        }
+    }
+
+    fn runtime_running_outputs_result() -> Result<BTreeSet<String>, String> {
+        let mut backend_guard = desktop_apply_backend_slot()
+            .lock()
+            .map_err(|_| "Desktop apply backend lock was poisoned".to_string())?;
+        let Some(backend) = backend_guard.as_mut() else {
+            return Ok(BTreeSet::new());
+        };
+
+        if !backend.handle.is_running() {
+            *backend_guard = None;
+            return Ok(BTreeSet::new());
+        }
+
+        backend
+            .handle
+            .send(EngineCommand::GetStatus)
+            .map_err(|error| format!("Failed to request desktop runtime status: {error}"))?;
+
+        Self::wait_for_status(backend)
+    }
+
+    fn wait_for_status(
+        backend: &mut RunningDesktopApplyBackend,
+    ) -> Result<BTreeSet<String>, String> {
+        let deadline = Instant::now() + REAL_APPLY_BACKEND_TIMEOUT;
+
+        loop {
+            match Self::recv_backend_event(backend, deadline)? {
+                Some(EngineEvent::Status(status)) => {
+                    return Ok(status
+                        .active_wallpapers
+                        .into_iter()
+                        .filter_map(|(output, path)| path.map(|_| output))
+                        .collect());
+                }
+                Some(EngineEvent::Error(reason)) => {
+                    return Err(format!(
+                        "{REAL_APPLY_BACKEND} could not report runtime status: {reason}"
+                    ));
+                }
+                Some(_) => {}
+                None => {
+                    return Err(format!(
+                        "Timed out waiting for {REAL_APPLY_BACKEND} runtime status"
+                    ));
+                }
+            }
         }
     }
 
@@ -972,7 +1064,9 @@ mod tests {
                 ),
             ]),
             library_item_assignments: BTreeMap::new(),
+            running_outputs: Default::default(),
             restore_issues: Vec::new(),
+            runtime_issue: None,
             monitors_available: true,
             monitor_discovery_issue: None,
             persistence_issue: None,
@@ -990,6 +1084,22 @@ mod tests {
             applied,
             vec![("DISPLAY-1".to_string(), "scene-7".to_string())]
         );
+    }
+
+    #[test]
+    fn desktop_apply_flow_startup_restore_issues_are_consumed_after_surface() {
+        DesktopService::record_startup_restore_issues(vec![
+            "Failed to restore saved assignment for monitor DISPLAY-1 with item scene-7: backend unavailable".to_string(),
+        ]);
+
+        let issues = DesktopService::take_startup_restore_issues();
+        let second_read = DesktopService::take_startup_restore_issues();
+
+        assert_eq!(
+            issues,
+            vec!["Failed to restore saved assignment for monitor DISPLAY-1 with item scene-7: backend unavailable".to_string()]
+        );
+        assert!(second_read.is_empty());
     }
 
     #[test]

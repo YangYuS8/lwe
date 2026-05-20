@@ -27,6 +27,10 @@ export const resolveDesktopPageState = (
     issueMessages.push(desktopCopy.assignmentPersistenceUnavailable);
   }
 
+  if (snapshot.runtimeIssue) {
+    issueMessages.push(snapshot.runtimeIssue);
+  }
+
   issueMessages.push(...(snapshot.restoreIssues ?? []));
 
   return {

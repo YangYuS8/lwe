@@ -159,6 +159,7 @@ export interface DesktopPageSnapshot {
   persistenceIssue?: string | null;
   assignmentsAvailable: boolean;
   restoreIssues?: string[];
+  runtimeIssue?: string | null;
   stale: boolean;
 }
 

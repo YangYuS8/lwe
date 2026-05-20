@@ -7,13 +7,17 @@ use crate::results::desktop::{DesktopPageResult, DesktopResolvedMonitorAssignmen
 fn runtime_status_for_assignment(
     assignment: Option<&DesktopResolvedMonitorAssignment>,
     assignments_available: bool,
+    runtime_running: bool,
 ) -> RuntimeStatus {
     if !assignments_available {
         return RuntimeStatus::Unsupported;
     }
 
     match assignment {
-        Some(DesktopResolvedMonitorAssignment::Restored { .. }) => RuntimeStatus::Running,
+        Some(DesktopResolvedMonitorAssignment::Restored { .. }) if runtime_running => {
+            RuntimeStatus::Running
+        }
+        Some(DesktopResolvedMonitorAssignment::Restored { .. }) => RuntimeStatus::Idle,
         Some(
             DesktopResolvedMonitorAssignment::MissingMonitor { .. }
             | DesktopResolvedMonitorAssignment::MissingItem { .. }
@@ -29,7 +33,9 @@ pub fn assemble_desktop_page(result: DesktopPageResult) -> DesktopPageSnapshot {
         assignments: _,
         resolved_assignments,
         library_item_assignments: _,
+        running_outputs,
         restore_issues,
+        runtime_issue,
         monitors_available,
         monitor_discovery_issue,
         persistence_issue,
@@ -47,6 +53,7 @@ pub fn assemble_desktop_page(result: DesktopPageResult) -> DesktopPageSnapshot {
             .into_iter()
             .map(|monitor| {
                 let monitor_id = monitor.id;
+                let runtime_running = running_outputs.contains(&monitor.backend_output_id);
                 let assignment = resolved_assignments.get(&monitor_id);
 
                 DesktopMonitorSummary {
@@ -99,6 +106,7 @@ pub fn assemble_desktop_page(result: DesktopPageResult) -> DesktopPageSnapshot {
                     runtime_status: runtime_status_for_assignment(
                         assignment,
                         assignments_available,
+                        runtime_running,
                     ),
                 }
             })
@@ -139,13 +147,14 @@ pub fn assemble_desktop_page(result: DesktopPageResult) -> DesktopPageSnapshot {
         persistence_issue,
         assignments_available,
         restore_issues,
+        runtime_issue,
         stale,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use super::*;
     use crate::models::RuntimeStatus;
@@ -172,7 +181,9 @@ mod tests {
                 },
             )]),
             library_item_assignments: BTreeMap::new(),
+            running_outputs: BTreeSet::new(),
             restore_issues: Vec::new(),
+            runtime_issue: None,
             monitors_available: true,
             monitor_discovery_issue: None,
             persistence_issue: None,
@@ -201,6 +212,37 @@ mod tests {
             Some(DesktopRestoreState::Restored)
         );
         assert!(snapshot.monitors[0].clear_supported);
+        assert_eq!(snapshot.monitors[0].runtime_status, RuntimeStatus::Idle);
+    }
+
+    #[test]
+    fn desktop_apply_flow_assembler_marks_only_confirmed_runtime_outputs_as_running() {
+        let snapshot = assemble_desktop_page(DesktopPageResult {
+            monitors: vec![MonitorDescriptor {
+                id: "DISPLAY-1".to_string(),
+                backend_output_id: "eDP-1".to_string(),
+                name: "Primary".to_string(),
+                resolution: "1920x1080".to_string(),
+            }],
+            assignments: BTreeMap::from([("DISPLAY-1".to_string(), "scene-7".to_string())]),
+            resolved_assignments: BTreeMap::from([(
+                "DISPLAY-1".to_string(),
+                DesktopResolvedMonitorAssignment::Restored {
+                    item_id: "scene-7".to_string(),
+                    item_title: "Forest Scene".to_string(),
+                },
+            )]),
+            library_item_assignments: BTreeMap::new(),
+            running_outputs: BTreeSet::from(["eDP-1".to_string()]),
+            restore_issues: Vec::new(),
+            runtime_issue: None,
+            monitors_available: true,
+            monitor_discovery_issue: None,
+            persistence_issue: None,
+            assignments_available: true,
+            stale: false,
+        });
+
         assert_eq!(snapshot.monitors[0].runtime_status, RuntimeStatus::Running);
     }
 
@@ -217,7 +259,9 @@ mod tests {
             assignments: BTreeMap::new(),
             resolved_assignments: BTreeMap::new(),
             library_item_assignments: BTreeMap::new(),
+            running_outputs: BTreeSet::new(),
             restore_issues: Vec::new(),
+            runtime_issue: None,
             monitors_available: true,
             monitor_discovery_issue: None,
             persistence_issue: Some("Desktop persistence is not available yet".to_string()),
@@ -245,7 +289,9 @@ mod tests {
             assignments: BTreeMap::new(),
             resolved_assignments: BTreeMap::new(),
             library_item_assignments: BTreeMap::new(),
+            running_outputs: BTreeSet::new(),
             restore_issues: Vec::new(),
+            runtime_issue: None,
             monitors_available: true,
             monitor_discovery_issue: None,
             persistence_issue: None,
@@ -274,7 +320,9 @@ mod tests {
                 },
             )]),
             library_item_assignments: BTreeMap::new(),
+            running_outputs: BTreeSet::new(),
             restore_issues: Vec::new(),
+            runtime_issue: None,
             monitors_available: true,
             monitor_discovery_issue: None,
             persistence_issue: None,
@@ -308,10 +356,12 @@ mod tests {
             )]),
             resolved_assignments,
             library_item_assignments: BTreeMap::new(),
+            running_outputs: BTreeSet::new(),
             restore_issues: vec![
                 "Saved assignment for missing monitor DISPLAY-3 still points to Forest Scene (scene-7)."
                     .to_string(),
             ],
+            runtime_issue: None,
             monitors_available: true,
             monitor_discovery_issue: None,
             persistence_issue: None,
@@ -350,7 +400,9 @@ mod tests {
                 },
             )]),
             library_item_assignments: BTreeMap::new(),
+            running_outputs: BTreeSet::new(),
             restore_issues: Vec::new(),
+            runtime_issue: None,
             monitors_available: true,
             monitor_discovery_issue: None,
             persistence_issue: None,
@@ -386,7 +438,9 @@ mod tests {
                 },
             )]),
             library_item_assignments: BTreeMap::new(),
+            running_outputs: BTreeSet::new(),
             restore_issues: Vec::new(),
+            runtime_issue: None,
             monitors_available: false,
             monitor_discovery_issue: Some("niri unavailable".to_string()),
             persistence_issue: None,

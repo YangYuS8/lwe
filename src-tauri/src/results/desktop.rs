@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::services::monitor_service::MonitorDescriptor;
 
@@ -33,7 +33,9 @@ pub struct DesktopPageResult {
     pub assignments: BTreeMap<String, String>,
     pub resolved_assignments: BTreeMap<String, DesktopResolvedMonitorAssignment>,
     pub library_item_assignments: BTreeMap<String, Vec<String>>,
+    pub running_outputs: BTreeSet<String>,
     pub restore_issues: Vec<String>,
+    pub runtime_issue: Option<String>,
     pub monitors_available: bool,
     pub monitor_discovery_issue: Option<String>,
     pub persistence_issue: Option<String>,
@@ -58,10 +60,12 @@ mod tests {
                 },
             )]),
             library_item_assignments: BTreeMap::new(),
+            running_outputs: BTreeSet::new(),
             restore_issues: vec![
                 "Saved assignment for missing monitor DISPLAY-2 still points to scene-7."
                     .to_string(),
             ],
+            runtime_issue: None,
             monitors_available: false,
             monitor_discovery_issue: None,
             persistence_issue: Some("Desktop persistence is not available yet".to_string()),
