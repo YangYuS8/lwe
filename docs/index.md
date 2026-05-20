@@ -14,7 +14,7 @@ It is built for practical migration workflows on Linux: keep Workshop discovery 
 ## Contributor documentation
 
 - [Project overview](./contributing/project.md): product scope, architecture, release model, and active paths.
-- [Near-term roadmap](./contributing/roadmap.md): maintained priorities for upcoming development.
+- [v1 roadmap](./contributing/roadmap.md): maintained milestones from v0.6.1 toward v1.
 - [Contributor guide](./contributing/guide.md): development setup, checks, documentation policy, and product-change workflow.
 
 ## Current support scope
