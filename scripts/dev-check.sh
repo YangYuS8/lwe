@@ -96,4 +96,7 @@ echo "  cargo test -p lwe-shell"
 echo "  cargo check --workspace"
 echo
 echo "Run the active shell with:"
-echo "  cargo run -p lwe-shell"
+echo "  pnpm tauri:dev"
+echo
+echo "Note: cargo run -p lwe-shell starts only the Rust shell. It does not"
+echo "start the Vite dev server required by tauri.conf.json devUrl."

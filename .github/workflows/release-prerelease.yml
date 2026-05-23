@@ -146,11 +146,20 @@ jobs:
             fi
           done
 
+      - name: Checkout source for release notes
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           name: prerelease-bundles
           path: dist
+
+      - name: Generate release notes
+        run: scripts/generate-release-notes.sh "LWE ${{ needs.build-prerelease.outputs.prerelease_version }}" release-notes.md
 
       - name: Publish GitHub prerelease
         uses: softprops/action-gh-release@v2
@@ -159,6 +168,7 @@ jobs:
           name: LWE ${{ needs.build-prerelease.outputs.prerelease_version }}
           target_commitish: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           prerelease: true
+          body_path: release-notes.md
           files: dist/*
 
   publish-aur-git:

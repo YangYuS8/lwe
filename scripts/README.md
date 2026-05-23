@@ -65,8 +65,13 @@ cargo build --workspace
 # Release build
 cargo build --release --workspace
 
-# Run the active shell from the workspace root
-cargo run -p lwe-shell
+# Run the active shell from the workspace root with the frontend dev server
+pnpm tauri:dev
 ```
+
+`cargo run -p lwe-shell` starts only the Rust shell. During development the
+application window expects the Vite dev server configured in
+`src-tauri/tauri.conf.json`, so use `pnpm tauri:dev` or start `pnpm dev`
+separately before running the shell binary.
 
 Legacy binaries such as `wayvid-gui` and `wayvid-ctl` are retired reference surfaces and should not be treated as normal active workspace run targets.

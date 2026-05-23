@@ -116,23 +116,33 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout source for release notes
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           name: stable-bundles
           path: dist
 
+      - name: Generate release notes
+        run: scripts/generate-release-notes.sh "LWE v${{ needs.build-release.outputs.version }}" release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: LWE v${{ needs.build-release.outputs.version }}
-          generate_release_notes: true
+          body_path: release-notes.md
           files: dist/*
 
   publish-aur-stable:
     runs-on: ubuntu-latest
-    needs: build-release
+    needs:
+      - build-release
+      - publish-release
 
     steps:
       - name: Install runtime dependencies
