@@ -16,17 +16,39 @@ impl AppShellService {
     }
 
     fn unavailable_summary(steam_available: bool) -> ShellSummary {
+        Self::unavailable_summary_with_monitor_count(
+            steam_available,
+            Self::connected_monitor_count(),
+        )
+    }
+
+    fn unavailable_summary_with_monitor_count(
+        steam_available: bool,
+        connected_monitors: ObservedCount,
+    ) -> ShellSummary {
         ShellSummary {
             steam_available,
             library_items: ObservedCount::Unknown,
             synced_workshop_items: ObservedCount::Unknown,
-            connected_monitors: Self::connected_monitor_count(),
+            connected_monitors,
         }
     }
 
     pub fn summary_from_refresh(
         steam_available: bool,
         refresh: WorkshopRefreshResult,
+    ) -> ShellSummary {
+        Self::summary_from_refresh_with_monitor_count(
+            steam_available,
+            refresh,
+            Self::connected_monitor_count(),
+        )
+    }
+
+    fn summary_from_refresh_with_monitor_count(
+        steam_available: bool,
+        refresh: WorkshopRefreshResult,
+        connected_monitors: ObservedCount,
     ) -> ShellSummary {
         let synced_workshop_items = refresh.synced_entry_count();
         let library_projection = LibraryService::projection_from_refresh(refresh);
@@ -35,7 +57,7 @@ impl AppShellService {
             steam_available,
             library_items: ObservedCount::Known(library_projection.entries.len()),
             synced_workshop_items: ObservedCount::Known(synced_workshop_items),
-            connected_monitors: Self::connected_monitor_count(),
+            connected_monitors,
         }
     }
 
@@ -63,9 +85,7 @@ mod tests {
     use crate::policies::shared::compatibility_policy::{
         CompatibilityDecision, CompatibilityLevel, CompatibilityNextStep, CompatibilityReason,
     };
-    use crate::results::monitor_discovery::MonitorDiscoveryResult;
     use crate::results::workshop::{AssessedWorkshopCatalogEntry, WorkshopProjectMetadata};
-    use crate::services::monitor_service::MonitorService;
     use lwe_library::{WorkshopCatalogEntry, WorkshopProjectType, WorkshopSyncState};
 
     fn assessed_entry(
@@ -92,98 +112,90 @@ mod tests {
         }
     }
 
-    fn expected_monitor_count() -> Option<usize> {
-        match MonitorService::list_monitors() {
-            MonitorDiscoveryResult::Known(monitors) => Some(monitors.len()),
-            MonitorDiscoveryResult::Unavailable { .. } => None,
-        }
-    }
-
     #[test]
     fn unavailable_steam_leaves_library_and_workshop_counts_unknown() {
-        let snapshot = assemble_app_shell(AppShellService::unavailable_summary(false));
+        let snapshot = assemble_app_shell(AppShellService::unavailable_summary_with_monitor_count(
+            false,
+            ObservedCount::Unknown,
+        ));
 
         assert!(!snapshot.steam_available);
         assert_eq!(snapshot.library_count, None);
         assert_eq!(snapshot.workshop_synced_count, None);
-        assert_eq!(snapshot.monitor_count, expected_monitor_count());
+        assert_eq!(snapshot.monitor_count, None);
     }
 
     #[test]
     fn steam_without_wallpaper_engine_content_keeps_library_and_workshop_counts_unknown() {
-        let snapshot = assemble_app_shell(AppShellService::unavailable_summary(true));
+        let snapshot = assemble_app_shell(AppShellService::unavailable_summary_with_monitor_count(
+            true,
+            ObservedCount::Known(2),
+        ));
 
         assert!(snapshot.steam_available);
         assert_eq!(snapshot.library_count, None);
         assert_eq!(snapshot.workshop_synced_count, None);
-        assert_eq!(snapshot.monitor_count, expected_monitor_count());
+        assert_eq!(snapshot.monitor_count, Some(2));
     }
 
     #[test]
     fn shell_counts_come_from_one_refresh_result() {
-        let snapshot = assemble_app_shell(AppShellService::summary_from_refresh(
-            true,
-            WorkshopRefreshResult {
-                catalog_entries: vec![
-                    assessed_entry(
-                        1,
-                        "Synced Video",
-                        WorkshopProjectType::Video,
-                        WorkshopSyncState::Synced,
-                        Some("video-1"),
-                        CompatibilityDecision {
-                            level: CompatibilityLevel::FullySupported,
-                            reason: CompatibilityReason::ReadyForLibrary,
-                            next_step: CompatibilityNextStep::None,
-                        },
-                    ),
-                    assessed_entry(
-                        2,
-                        "Unsupported App",
-                        WorkshopProjectType::Other,
-                        WorkshopSyncState::UnsupportedType,
-                        None,
-                        CompatibilityDecision {
-                            level: CompatibilityLevel::Unsupported,
-                            reason: CompatibilityReason::UnsupportedProjectType,
-                            next_step: CompatibilityNextStep::WaitForFutureSupport,
-                        },
-                    ),
-                ],
-                library_refresh_required: true,
-            },
-        ));
+        let snapshot =
+            assemble_app_shell(AppShellService::summary_from_refresh_with_monitor_count(
+                true,
+                WorkshopRefreshResult {
+                    catalog_entries: vec![
+                        assessed_entry(
+                            1,
+                            "Synced Video",
+                            WorkshopProjectType::Video,
+                            WorkshopSyncState::Synced,
+                            Some("video-1"),
+                            CompatibilityDecision {
+                                level: CompatibilityLevel::FullySupported,
+                                reason: CompatibilityReason::ReadyForLibrary,
+                                next_step: CompatibilityNextStep::None,
+                            },
+                        ),
+                        assessed_entry(
+                            2,
+                            "Unsupported App",
+                            WorkshopProjectType::Other,
+                            WorkshopSyncState::UnsupportedType,
+                            None,
+                            CompatibilityDecision {
+                                level: CompatibilityLevel::Unsupported,
+                                reason: CompatibilityReason::UnsupportedProjectType,
+                                next_step: CompatibilityNextStep::WaitForFutureSupport,
+                            },
+                        ),
+                    ],
+                    library_refresh_required: true,
+                },
+                ObservedCount::Known(1),
+            ));
 
         assert_eq!(snapshot.library_count, Some(1));
         assert_eq!(snapshot.workshop_synced_count, Some(1));
     }
 
     #[test]
-    fn shell_summary_reflects_monitor_discovery_result() {
-        let summary = AppShellService::summary_from_refresh(
+    fn shell_summary_reflects_injected_monitor_discovery_result() {
+        let summary = AppShellService::summary_from_refresh_with_monitor_count(
             true,
             WorkshopRefreshResult {
                 catalog_entries: Vec::new(),
                 library_refresh_required: false,
             },
+            ObservedCount::Known(3),
         );
 
-        match MonitorService::list_monitors() {
-            MonitorDiscoveryResult::Known(monitors) => {
-                assert!(matches!(
-                    summary.connected_monitors,
-                    ObservedCount::Known(count) if count == monitors.len()
-                ));
-            }
-            MonitorDiscoveryResult::Unavailable { .. } => {
-                assert_eq!(summary.connected_monitors, ObservedCount::Unknown);
-            }
-        }
+        assert_eq!(summary.connected_monitors, ObservedCount::Known(3));
     }
 
     #[test]
     fn shared_policy_shell_snapshot_comes_from_result_summary() {
-        let summary = AppShellService::summary_from_refresh(
+        let summary = AppShellService::summary_from_refresh_with_monitor_count(
             true,
             WorkshopRefreshResult {
                 catalog_entries: vec![assessed_entry(
@@ -200,6 +212,7 @@ mod tests {
                 )],
                 library_refresh_required: true,
             },
+            ObservedCount::Unknown,
         );
 
         assert!(matches!(summary.library_items, ObservedCount::Known(1)));

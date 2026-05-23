@@ -391,6 +391,10 @@ impl DesktopService {
     }
 
     pub fn apply_to_monitor(monitor_id: &str, item_id: &str) -> Result<DesktopApplyResult, String> {
+        if let Some(result) = Self::unsupported_apply_result(item_id)? {
+            return Ok(result);
+        }
+
         let monitors = MonitorService::list_monitors();
 
         match MonitorService::resolve_specific_monitor(&monitors, monitor_id) {
@@ -437,6 +441,38 @@ impl DesktopService {
                 Ok(DesktopApplyResult::MonitorDiscoveryUnavailable { reason })
             }
         }
+    }
+
+    fn unsupported_apply_result(item_id: &str) -> Result<Option<DesktopApplyResult>, String> {
+        let Ok(entry) = LibraryService::inspect_item(item_id) else {
+            return Ok(None);
+        };
+
+        if entry.entry.project_type == WorkshopProjectType::Video {
+            return Ok(None);
+        }
+
+        Ok(Self::unsupported_apply_result_for_project_type(
+            item_id,
+            entry.entry.project_type,
+        ))
+    }
+
+    fn unsupported_apply_result_for_project_type(
+        item_id: &str,
+        project_type: WorkshopProjectType,
+    ) -> Option<DesktopApplyResult> {
+        if project_type == WorkshopProjectType::Video {
+            return None;
+        }
+
+        Some(DesktopApplyResult::UnsupportedItem {
+            item_id: item_id.to_string(),
+            reason: format!(
+                "{:?} wallpapers are recognized for compatibility reporting, but the current verified runtime can only apply video wallpapers.",
+                project_type
+            ),
+        })
     }
 
     fn apply_with_real_backend(
@@ -1084,6 +1120,32 @@ mod tests {
             applied,
             vec![("DISPLAY-1".to_string(), "scene-7".to_string())]
         );
+    }
+
+    #[test]
+    fn desktop_apply_flow_rejects_non_video_before_backend_resolution() {
+        let result = DesktopService::unsupported_apply_result_for_project_type(
+            "web-7",
+            WorkshopProjectType::Web,
+        );
+
+        assert!(matches!(
+            result,
+            Some(DesktopApplyResult::UnsupportedItem { item_id, reason })
+                if item_id == "web-7"
+                    && reason.contains("Web wallpapers")
+                    && reason.contains("only apply video wallpapers")
+        ));
+    }
+
+    #[test]
+    fn desktop_apply_flow_allows_video_to_continue_to_backend_resolution() {
+        let result = DesktopService::unsupported_apply_result_for_project_type(
+            "video-7",
+            WorkshopProjectType::Video,
+        );
+
+        assert!(result.is_none());
     }
 
     #[test]

@@ -162,6 +162,58 @@ describe('LibraryDetailPanel', () => {
     expect(body).toContain('disabled');
   });
 
+  it('shows web runtime unsupported apply messaging for non-video items', () => {
+    const { body } = render(LibraryDetailPanel, {
+      props: {
+        detail: {
+          id: 'web-1',
+          title: 'Interactive Rain Site',
+          itemType: 'web',
+          coverPath: null,
+          source: 'workshop',
+          compatibility: {
+            badge: 'partially_supported',
+            reasonCode: 'recognized_but_runtime_unsupported',
+            summaryCopy: 'Recognized for reporting only',
+            headline: 'Runtime unsupported',
+            detail:
+              'LWE recognizes this web item for Library and compatibility reporting, but the current verified runtime path only applies video wallpapers.',
+            nextStep: 'wait_for_future_support',
+            nextStepCopy: 'This item needs future runtime support before it can be applied.'
+          },
+          applySupported: false,
+          monitorsAvailable: true,
+          monitorDiscoveryIssue: null,
+          desktopAssignmentIssue: null,
+          desktopAssignmentsAvailable: true,
+          assignedMonitorLabels: [],
+          description: null,
+          tags: []
+        },
+        monitors: [
+          {
+            monitorId: 'DISPLAY-1',
+            displayName: 'Primary',
+            resolution: '1920x1080',
+            currentWallpaperTitle: null,
+            currentCoverPath: null,
+            clearSupported: false,
+            runtimeStatus: 'idle'
+          }
+        ],
+        selectedMonitorId: 'DISPLAY-1',
+        applyDisabled: true
+      }
+    });
+
+    expect(body).toContain('>Web<');
+    expect(body).toContain('Runtime unsupported');
+    expect(body).toContain('compatibility reporting');
+    expect(body).toContain('current verified runtime can only apply video wallpapers');
+    expect(body).toContain('disabled');
+    expect(body).not.toContain('recognized_but_runtime_unsupported');
+  });
+
   it('renders apply errors inline without replacing the populated detail layout', () => {
     const { body } = render(LibraryDetailPanel, {
       props: {

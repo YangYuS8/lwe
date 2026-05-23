@@ -98,23 +98,54 @@ mod tests {
     use lwe_library::{WorkshopCatalogEntry, WorkshopProjectType, WorkshopSyncState};
 
     fn assessed_entry() -> AssessedWorkshopCatalogEntry {
-        AssessedWorkshopCatalogEntry {
-            entry: WorkshopCatalogEntry {
-                workshop_id: 7,
-                title: "Forest Video".to_string(),
-                project_type: WorkshopProjectType::Video,
-                project_dir: std::path::PathBuf::from("/tmp/7"),
-                cover_path: None,
-                sync_state: WorkshopSyncState::Synced,
-                supported_first_release: true,
-                library_item_id: Some("video-7".to_string()),
-            },
-            compatibility: CompatibilityDecision {
+        assessed_entry_with(
+            "video-7",
+            "Forest Video",
+            WorkshopProjectType::Video,
+            CompatibilityDecision {
                 level: CompatibilityLevel::FullySupported,
                 reason: CompatibilityReason::ReadyForLibrary,
                 next_step: CompatibilityNextStep::None,
             },
+        )
+    }
+
+    fn assessed_entry_with(
+        item_id: &str,
+        title: &str,
+        project_type: WorkshopProjectType,
+        compatibility: CompatibilityDecision,
+    ) -> AssessedWorkshopCatalogEntry {
+        AssessedWorkshopCatalogEntry {
+            entry: WorkshopCatalogEntry {
+                workshop_id: 7,
+                title: title.to_string(),
+                project_type,
+                project_dir: std::path::PathBuf::from("/tmp/7"),
+                cover_path: None,
+                sync_state: WorkshopSyncState::Synced,
+                supported_first_release: matches!(project_type, WorkshopProjectType::Video),
+                library_item_id: Some(item_id.to_string()),
+            },
+            compatibility,
             project_metadata: WorkshopProjectMetadata::default(),
+        }
+    }
+
+    fn desktop_page() -> DesktopPageResult {
+        DesktopPageResult {
+            monitors: Vec::new(),
+            assignments: std::collections::BTreeMap::new(),
+            resolved_assignments: std::collections::BTreeMap::new(),
+            library_item_assignments: std::collections::BTreeMap::new(),
+            running_outputs: Default::default(),
+            restore_issues: Vec::new(),
+            runtime_issue: None,
+            monitors_available: true,
+            monitor_discovery_issue: None,
+            persistence_issue: None,
+            assignments_available: true,
+            stale: false,
         }
     }
 
@@ -185,6 +216,35 @@ mod tests {
         assert_eq!(
             snapshot.items[0].assigned_monitor_labels,
             vec!["Primary".to_string()]
+        );
+    }
+
+    #[test]
+    fn support_matrix_library_page_keeps_scene_visible_but_not_applyable() {
+        let snapshot = assemble_library_page(
+            LibraryProjection {
+                entries: vec![assessed_entry_with(
+                    "scene-7",
+                    "Forest Scene",
+                    WorkshopProjectType::Scene,
+                    CompatibilityDecision {
+                        level: CompatibilityLevel::PartiallySupported,
+                        reason: CompatibilityReason::RecognizedButRuntimeUnsupported,
+                        next_step: CompatibilityNextStep::WaitForFutureSupport,
+                    },
+                )],
+                source_catalog_count: 1,
+            },
+            &desktop_page(),
+        );
+
+        assert_eq!(snapshot.items.len(), 1);
+        assert_eq!(snapshot.items[0].id, "scene-7");
+        assert_eq!(snapshot.items[0].item_type, ItemType::Scene);
+        assert!(!snapshot.items[0].apply_supported);
+        assert_eq!(
+            snapshot.items[0].compatibility.reason_code,
+            "recognized_but_runtime_unsupported"
         );
     }
 }

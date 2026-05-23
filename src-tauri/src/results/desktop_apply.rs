@@ -25,6 +25,10 @@ pub enum DesktopApplyResult {
     BackendUnavailable {
         reason: String,
     },
+    UnsupportedItem {
+        item_id: String,
+        reason: String,
+    },
     PersistenceUnavailable {
         reason: String,
     },
@@ -51,6 +55,10 @@ mod tests {
         let backend_unavailable = DesktopApplyResult::BackendUnavailable {
             reason: "The current desktop apply backend is unavailable".to_string(),
         };
+        let unsupported_item = DesktopApplyResult::UnsupportedItem {
+            item_id: "scene-7".to_string(),
+            reason: "Scene wallpapers are recognized but not runnable yet".to_string(),
+        };
         let persistence_unavailable = DesktopApplyResult::PersistenceUnavailable {
             reason: "Desktop persistence is not available yet".to_string(),
         };
@@ -74,6 +82,10 @@ mod tests {
         assert!(matches!(
             backend_unavailable,
             DesktopApplyResult::BackendUnavailable { .. }
+        ));
+        assert!(matches!(
+            unsupported_item,
+            DesktopApplyResult::UnsupportedItem { .. }
         ));
         assert!(matches!(
             persistence_unavailable,

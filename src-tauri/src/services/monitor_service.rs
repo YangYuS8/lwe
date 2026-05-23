@@ -14,8 +14,10 @@ pub struct MonitorService;
 
 impl MonitorService {
     pub fn list_monitors() -> MonitorDiscoveryResult {
-        let backend = NiriMonitorBackend;
+        Self::list_monitors_with_backend(&NiriMonitorBackend)
+    }
 
+    fn list_monitors_with_backend(backend: &impl MonitorBackend) -> MonitorDiscoveryResult {
         match backend.list_monitors() {
             BackendMonitorDiscovery::Known(monitors) => {
                 let monitors = monitors
@@ -58,10 +60,34 @@ impl MonitorService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::backends::monitor_backend::{
+        BackendMonitorDescriptor, BackendMonitorDiscovery,
+    };
+
+    struct StaticMonitorBackend(BackendMonitorDiscovery);
+
+    impl MonitorBackend for StaticMonitorBackend {
+        fn list_monitors(&self) -> BackendMonitorDiscovery {
+            match &self.0 {
+                BackendMonitorDiscovery::Known(monitors) => {
+                    BackendMonitorDiscovery::Known(monitors.clone())
+                }
+                BackendMonitorDiscovery::Unavailable { reason } => {
+                    BackendMonitorDiscovery::Unavailable {
+                        reason: reason.clone(),
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn monitor_service_uses_real_backend_result_type() {
-        let result = MonitorService::list_monitors();
+        let result = MonitorService::list_monitors_with_backend(&StaticMonitorBackend(
+            BackendMonitorDiscovery::Unavailable {
+                reason: "niri is unavailable".to_string(),
+            },
+        ));
 
         assert!(matches!(
             result,
@@ -72,7 +98,14 @@ mod tests {
 
     #[test]
     fn list_monitors_preserves_monitor_descriptor_v1_shape_for_known_results() {
-        let result = MonitorService::list_monitors();
+        let result = MonitorService::list_monitors_with_backend(&StaticMonitorBackend(
+            BackendMonitorDiscovery::Known(vec![BackendMonitorDescriptor {
+                id: "DISPLAY-1".to_string(),
+                backend_output_id: "eDP-1".to_string(),
+                name: "Primary".to_string(),
+                resolution: "1920x1080".to_string(),
+            }]),
+        ));
 
         match result {
             MonitorDiscoveryResult::Known(monitors) => {
@@ -90,7 +123,9 @@ mod tests {
 
     #[test]
     fn list_monitors_returns_backend_result() {
-        let result = MonitorService::list_monitors();
+        let result = MonitorService::list_monitors_with_backend(&StaticMonitorBackend(
+            BackendMonitorDiscovery::Known(Vec::new()),
+        ));
 
         assert!(matches!(
             result,

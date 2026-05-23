@@ -101,6 +101,44 @@ describe('WorkshopDetailPanel', () => {
     expect(body).not.toContain('打开源页面');
   });
 
+  it('shows compatibility copy and web item type labels for runtime-unsupported web items', () => {
+    const { body } = render(WorkshopDetailPanel, {
+      props: {
+        detail: {
+          id: 'workshop-web-1',
+          title: 'Interactive Rain Site',
+          itemType: 'web',
+          coverPath: null,
+          syncStatus: 'synced',
+          compatibility: {
+            badge: 'partially_supported',
+            reasonCode: 'recognized_but_runtime_unsupported',
+            summaryCopy: 'Recognized for reporting only',
+            headline: 'Runtime unsupported',
+            detail:
+              'LWE recognizes this web item for compatibility reporting, but the current verified runtime path only applies video wallpapers.',
+            nextStep: 'wait_for_future_support',
+            nextStepCopy: 'This item remains visible for reporting until web runtime support is available.'
+          },
+          description: 'Web wallpaper detail.',
+          tags: ['web', 'interactive']
+        },
+        loading: false,
+        error: null,
+        openInSteam: async () => {}
+      }
+    });
+
+    expect(body).toContain('>Partially Supported<');
+    expect(body).toContain('>Web<');
+    expect(body).toContain('Recognized for reporting only');
+    expect(body).toContain('Runtime unsupported');
+    expect(body).toContain('compatibility reporting');
+    expect(body).toContain('This item remains visible for reporting until web runtime support is available.');
+    expect(body).not.toContain('recognized_but_runtime_unsupported');
+    expect(body).not.toContain('wait_for_future_support');
+  });
+
   it('uses the shared subpanel treatment for the empty detail state', () => {
     const { body } = render(WorkshopDetailPanel, {
       props: {

@@ -76,6 +76,15 @@ pub fn assemble_desktop_apply_outcome(result: DesktopApplyResult) -> ActionOutco
             current_update: None,
             invalidations: Vec::new(),
         },
+        DesktopApplyResult::UnsupportedItem { item_id, reason } => ActionOutcome {
+            ok: false,
+            message: Some(format!(
+                "Library item {item_id} cannot be applied: {reason}"
+            )),
+            shell_patch: None,
+            current_update: None,
+            invalidations: Vec::new(),
+        },
         DesktopApplyResult::BackendUnavailable { reason }
         | DesktopApplyResult::MonitorDiscoveryUnavailable { reason }
         | DesktopApplyResult::PersistenceUnavailable { reason } => ActionOutcome {
@@ -142,6 +151,23 @@ mod tests {
         assert_eq!(
             outcome.message.as_deref(),
             Some("Applied scene-7 to DISPLAY-1 via lwe_engine_wayland")
+        );
+    }
+
+    #[test]
+    fn desktop_apply_flow_action_outcome_explains_unsupported_items() {
+        let outcome = assemble_desktop_apply_outcome(DesktopApplyResult::UnsupportedItem {
+            item_id: "scene-7".to_string(),
+            reason: "Scene wallpapers are recognized for compatibility reporting, but the current verified runtime can only apply video wallpapers.".to_string(),
+        });
+
+        assert!(!outcome.ok);
+        assert!(outcome.invalidations.is_empty());
+        assert_eq!(
+            outcome.message.as_deref(),
+            Some(
+                "Library item scene-7 cannot be applied: Scene wallpapers are recognized for compatibility reporting, but the current verified runtime can only apply video wallpapers."
+            )
         );
     }
 }
