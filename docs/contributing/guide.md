@@ -105,6 +105,8 @@ For documentation-only changes, `pnpm docs:build` is the required validation.
 
 Runtime changes must be validated on a real supported desktop session before they are described as supported. The current verified target is Wayland with `niri` and video wallpapers.
 
+Session restore uses the LWE session file at `$XDG_CONFIG_HOME/lwe/session.toml`, or `$HOME/.config/lwe/session.toml` when `XDG_CONFIG_HOME` is unset. When testing restore behavior, inspect or remove that file if the Desktop page shows stale saved assignments.
+
 Use this checklist for runtime changes:
 
 1. discover at least one active monitor in LWE;
@@ -114,6 +116,8 @@ Use this checklist for runtime changes:
 5. confirm clearing one monitor does not stop wallpapers on other monitors;
 6. restart LWE and confirm saved assignments are restored or that restore failures are visible in Desktop;
 7. clear all assignments and confirm the saved session no longer restores them.
+
+If a runtime step fails, keep the terminal log line that names the failing stage: backend start, output discovery, first-frame apply, per-monitor clear, or startup restore. These messages are the supported way to distinguish missing video assets, output mismatches, Wayland layer-shell/EGL failures, and backend timeouts.
 
 Real desktop tests in the Rust test suite are opt-in because they depend on the active compositor, monitor layout, GPU/EGL stack, Steam Workshop content, and local video assets. Run them explicitly on a verified machine:
 

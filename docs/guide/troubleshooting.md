@@ -22,6 +22,7 @@ Possible reasons include:
 - the local Workshop content is incomplete or has not synchronized yet;
 - the current desktop session has not been validated.
 - the runtime backend could not initialize Wayland layer-shell, EGL, or the target output.
+- the saved assignment in `$XDG_CONFIG_HOME/lwe/session.toml` or `$HOME/.config/lwe/session.toml` points to a missing monitor or Library item.
 
 Video wallpapers are the first-release runtime focus. Do not assume every Wallpaper Engine item is runnable on Linux.
 
@@ -34,7 +35,8 @@ Then try:
 1. clear the current assignment in LWE;
 2. reselect the monitor;
 3. apply the wallpaper again;
-4. restart LWE if the session state appears stale.
+4. restart LWE if the session state appears stale;
+5. if stale assignments keep returning, inspect or remove the LWE session file at `$XDG_CONFIG_HOME/lwe/session.toml` or `$HOME/.config/lwe/session.toml`.
 
 When launching from a terminal, runtime errors are most useful when they name one of these stages:
 
@@ -45,6 +47,8 @@ When launching from a terminal, runtime errors are most useful when they name on
 - restore on startup.
 
 Common low-level causes include missing `zwlr_layer_shell_v1`, unavailable EGL, a monitor/output name mismatch, a missing local video asset, or an unsupported wallpaper type.
+
+When the error mentions an output-name mismatch, refresh the Desktop page, select the monitor again, and include the requested output plus the listed runtime outputs in any issue report.
 
 If this only fails on a different compositor, document the compositor, session type, and monitor layout when reporting the issue.
 

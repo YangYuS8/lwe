@@ -208,6 +208,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::ffi::OsString;
     use std::path::PathBuf;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::results::desktop_persistence::{DesktopPersistenceLoad, DesktopPersistenceWrite};
@@ -217,10 +218,12 @@ mod tests {
     struct EnvGuard {
         xdg_config_home: Option<OsString>,
         home: Option<OsString>,
+        _lock: MutexGuard<'static, ()>,
     }
 
     impl EnvGuard {
         fn set_config_root(config_root: &std::path::Path) -> Self {
+            let lock = env_lock();
             let xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
             let home = std::env::var_os("HOME");
 
@@ -232,8 +235,35 @@ mod tests {
             Self {
                 xdg_config_home,
                 home,
+                _lock: lock,
             }
         }
+
+        fn set_home_only(home_root: &std::path::Path) -> Self {
+            let lock = env_lock();
+            let xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+            let home = std::env::var_os("HOME");
+
+            unsafe {
+                std::env::remove_var("XDG_CONFIG_HOME");
+                std::env::set_var("HOME", home_root);
+            }
+
+            Self {
+                xdg_config_home,
+                home,
+                _lock: lock,
+            }
+        }
+    }
+
+    fn env_lock() -> MutexGuard<'static, ()> {
+        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+        ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("desktop persistence env lock was poisoned")
     }
 
     impl Drop for EnvGuard {
@@ -398,5 +428,40 @@ mod tests {
         .unwrap();
 
         assert_eq!(path, PathBuf::from("/tmp/config/lwe/session.toml"));
+    }
+
+    #[test]
+    fn session_path_falls_back_to_home_config_root() {
+        let path = session_state_path_from_env(None, Some(PathBuf::from("/tmp/home"))).unwrap();
+
+        assert_eq!(path, PathBuf::from("/tmp/home/.config/lwe/session.toml"));
+    }
+
+    #[test]
+    fn session_path_rejects_relative_config_roots() {
+        let result = session_state_path_from_env(Some(PathBuf::from("relative")), None);
+
+        assert!(matches!(result, Err(reason) if reason.contains("non-absolute config root")));
+    }
+
+    #[test]
+    fn default_service_uses_home_fallback_when_xdg_config_home_is_unset() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let home_root =
+            std::env::temp_dir().join(format!("desktop-persistence-home-fallback-{unique}"));
+        let _guard = EnvGuard::set_home_only(&home_root);
+
+        assert!(matches!(
+            DesktopPersistenceService::save_assignment("eDP-1", "item-1"),
+            DesktopPersistenceWrite::Saved
+        ));
+
+        let persisted =
+            std::fs::read_to_string(home_root.join(".config/lwe/session.toml")).unwrap();
+        let parsed: toml::Value = toml::from_str(&persisted).unwrap();
+        assert_eq!(parsed["assignments"]["eDP-1"].as_str(), Some("item-1"));
     }
 }

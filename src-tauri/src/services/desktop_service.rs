@@ -589,14 +589,15 @@ impl DesktopService {
 
         loop {
             match Self::recv_backend_event(backend, deadline)? {
-                Some(EngineEvent::OutputAdded(info)) if info.name == output_name => return Ok(()),
-                Some(EngineEvent::OutputAdded(_)) => {}
-                Some(EngineEvent::OutputsList(outputs))
-                    if outputs.iter().any(|output| output.name == output_name) =>
-                {
+                Some(EngineEvent::OutputAdded(info)) => {
+                    if Self::output_added_matches(&info, output_name) {
+                        return Ok(());
+                    }
+                }
+                Some(EngineEvent::OutputsList(outputs)) => {
+                    Self::ensure_output_list_contains(&outputs, output_name)?;
                     return Ok(());
                 }
-                Some(EngineEvent::OutputsList(_)) => {}
                 Some(EngineEvent::Error(reason)) => {
                     return Err(format!(
                         "{REAL_APPLY_BACKEND} could not prepare output {output_name}: {reason}"
@@ -609,6 +610,35 @@ impl DesktopService {
                     ));
                 }
             }
+        }
+    }
+
+    fn output_added_matches(output: &lwe_engine::OutputInfo, output_name: &str) -> bool {
+        output.name == output_name
+    }
+
+    fn ensure_output_list_contains(
+        outputs: &[lwe_engine::OutputInfo],
+        output_name: &str,
+    ) -> Result<(), String> {
+        if outputs.iter().any(|output| output.name == output_name) {
+            return Ok(());
+        }
+
+        let available = outputs
+            .iter()
+            .map(|output| output.name.as_str())
+            .collect::<Vec<_>>();
+
+        if available.is_empty() {
+            Err(format!(
+                "{REAL_APPLY_BACKEND} did not report any active outputs while preparing {output_name}. Confirm the Wayland session exposes outputs to the runtime backend."
+            ))
+        } else {
+            Err(format!(
+                "{REAL_APPLY_BACKEND} reported outputs [{}] but not requested output {output_name}. Reselect the monitor in LWE and check for a compositor output-name mismatch.",
+                available.join(", ")
+            ))
         }
     }
 
@@ -633,13 +663,17 @@ impl DesktopService {
                 }
                 Some(_) => {}
                 None => {
-                    return Err(format!(
-                        "Timed out waiting for {REAL_APPLY_BACKEND} to apply {} to {output_name}",
-                        path.display()
-                    ));
+                    return Err(Self::apply_timeout_message(output_name, path));
                 }
             }
         }
+    }
+
+    fn apply_timeout_message(output_name: &str, path: &Path) -> String {
+        format!(
+            "Timed out waiting for {REAL_APPLY_BACKEND} to apply {} to {output_name}. Check Wayland layer-shell, EGL, mpv, and video asset availability.",
+            path.display()
+        )
     }
 
     fn recv_backend_event(
@@ -783,6 +817,7 @@ mod tests {
     use crate::results::workshop::AssessedWorkshopCatalogEntry;
     use crate::services::library_service::LibraryService;
     use crate::services::monitor_service::MonitorService;
+    use lwe_engine::OutputInfo;
     use lwe_library::WeProject;
     use lwe_library::{WorkshopCatalogEntry, WorkshopProjectType, WorkshopSyncState};
 
@@ -1162,6 +1197,88 @@ mod tests {
             vec!["Failed to restore saved assignment for monitor DISPLAY-1 with item scene-7: backend unavailable".to_string()]
         );
         assert!(second_read.is_empty());
+    }
+
+    #[test]
+    fn desktop_apply_flow_load_page_marks_runtime_issue_as_stale_and_deduplicates_restore_issues() {
+        DesktopService::record_startup_restore_issues(vec![
+            "restore warning".to_string(),
+            "restore warning".to_string(),
+        ]);
+
+        let mut result = DesktopService::build_page_result(
+            MonitorDiscoveryResult::Known(vec![
+                crate::services::monitor_service::MonitorDescriptor {
+                    id: "DISPLAY-1".to_string(),
+                    backend_output_id: "eDP-1".to_string(),
+                    name: "Primary".to_string(),
+                    resolution: "1920x1080".to_string(),
+                },
+            ]),
+            DesktopPersistenceLoad::Loaded(BTreeMap::new()),
+            Ok(LibraryProjection {
+                entries: vec![],
+                source_catalog_count: 0,
+            }),
+        );
+        result.runtime_issue =
+            Some("Timed out waiting for lwe_engine_wayland runtime status".to_string());
+
+        for issue in DesktopService::take_startup_restore_issues() {
+            if !result.restore_issues.contains(&issue) {
+                result.restore_issues.push(issue);
+            }
+        }
+        result.stale =
+            result.stale || result.runtime_issue.is_some() || !result.restore_issues.is_empty();
+
+        assert!(result.stale);
+        assert_eq!(
+            result.runtime_issue.as_deref(),
+            Some("Timed out waiting for lwe_engine_wayland runtime status")
+        );
+        assert_eq!(result.restore_issues, vec!["restore warning".to_string()]);
+    }
+
+    #[test]
+    fn desktop_apply_flow_output_list_reports_actionable_mismatch() {
+        let result = DesktopService::ensure_output_list_contains(
+            &[OutputInfo {
+                name: "HDMI-A-1".to_string(),
+                width: 1920,
+                height: 1080,
+                scale: 1.0,
+                position: (0, 0),
+                active: true,
+                hdr_capabilities: Default::default(),
+            }],
+            "eDP-1",
+        );
+
+        assert!(matches!(result, Err(reason) if reason.contains("HDMI-A-1")
+            && reason.contains("eDP-1")
+            && reason.contains("output-name mismatch")));
+    }
+
+    #[test]
+    fn desktop_apply_flow_empty_output_list_reports_actionable_runtime_issue() {
+        let result = DesktopService::ensure_output_list_contains(&[], "eDP-1");
+
+        assert!(
+            matches!(result, Err(reason) if reason.contains("did not report any active outputs")
+            && reason.contains("Wayland session"))
+        );
+    }
+
+    #[test]
+    fn desktop_apply_flow_apply_timeout_mentions_runtime_layers() {
+        let message = DesktopService::apply_timeout_message("eDP-1", Path::new("/tmp/video.mp4"));
+
+        assert!(message.contains("Timed out"));
+        assert!(message.contains("Wayland layer-shell"));
+        assert!(message.contains("EGL"));
+        assert!(message.contains("mpv"));
+        assert!(message.contains("video asset"));
     }
 
     #[test]
