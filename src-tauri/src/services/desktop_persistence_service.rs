@@ -6,8 +6,6 @@ use std::path::PathBuf;
 use crate::results::desktop_persistence::{DesktopPersistenceLoad, DesktopPersistenceWrite};
 use crate::results::session_persistence::PersistedSessionState;
 
-const PERSISTENCE_UNAVAILABLE_REASON: &str = "Desktop persistence is not available yet";
-
 pub struct DesktopPersistenceService;
 
 pub struct ScopedDesktopPersistenceService {
@@ -16,24 +14,23 @@ pub struct ScopedDesktopPersistenceService {
 
 impl DesktopPersistenceService {
     pub fn load_state() -> DesktopPersistenceLoad {
-        DesktopPersistenceLoad::Unavailable {
-            reason: PERSISTENCE_UNAVAILABLE_REASON.to_string(),
+        match Self::for_user_path() {
+            Ok(service) => service.load_state(),
+            Err(reason) => DesktopPersistenceLoad::Unavailable { reason },
         }
     }
 
     pub fn save_assignment(monitor_id: &str, item_id: &str) -> DesktopPersistenceWrite {
-        let _ = (monitor_id, item_id);
-
-        DesktopPersistenceWrite::Unavailable {
-            reason: PERSISTENCE_UNAVAILABLE_REASON.to_string(),
+        match Self::for_user_path() {
+            Ok(service) => service.save_assignment(monitor_id, item_id),
+            Err(reason) => DesktopPersistenceWrite::Unavailable { reason },
         }
     }
 
     pub fn clear_assignment(monitor_id: &str) -> DesktopPersistenceWrite {
-        let _ = monitor_id;
-
-        DesktopPersistenceWrite::Unavailable {
-            reason: PERSISTENCE_UNAVAILABLE_REASON.to_string(),
+        match Self::for_user_path() {
+            Ok(service) => service.clear_assignment(monitor_id),
+            Err(reason) => DesktopPersistenceWrite::Unavailable { reason },
         }
     }
 
@@ -209,12 +206,49 @@ impl ScopedDesktopPersistenceService {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::ffi::OsString;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::results::desktop_persistence::{DesktopPersistenceLoad, DesktopPersistenceWrite};
 
     use super::{DesktopPersistenceService, session_state_path_from_env};
+
+    struct EnvGuard {
+        xdg_config_home: Option<OsString>,
+        home: Option<OsString>,
+    }
+
+    impl EnvGuard {
+        fn set_config_root(config_root: &std::path::Path) -> Self {
+            let xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+            let home = std::env::var_os("HOME");
+
+            unsafe {
+                std::env::set_var("XDG_CONFIG_HOME", config_root);
+                std::env::set_var("HOME", config_root);
+            }
+
+            Self {
+                xdg_config_home,
+                home,
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.xdg_config_home {
+                Some(value) => unsafe { std::env::set_var("XDG_CONFIG_HOME", value) },
+                None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
+            }
+
+            match &self.home {
+                Some(value) => unsafe { std::env::set_var("HOME", value) },
+                None => unsafe { std::env::remove_var("HOME") },
+            }
+        }
+    }
 
     fn test_state_path() -> PathBuf {
         let unique = SystemTime::now()
@@ -276,23 +310,34 @@ mod tests {
     }
 
     #[test]
-    fn default_service_methods_remain_unavailable_until_activation_is_threaded() {
+    fn default_service_methods_use_user_session_path() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let config_root =
+            std::env::temp_dir().join(format!("desktop-persistence-default-service-{unique}"));
+        let _guard = EnvGuard::set_config_root(&config_root);
+
         assert!(matches!(
             DesktopPersistenceService::load_state(),
-            DesktopPersistenceLoad::Unavailable { reason }
-                if reason == "Desktop persistence is not available yet"
+            DesktopPersistenceLoad::Loaded(assignments) if assignments.is_empty()
         ));
 
         assert!(matches!(
             DesktopPersistenceService::save_assignment("eDP-1", "item-1"),
-            DesktopPersistenceWrite::Unavailable { reason }
-                if reason == "Desktop persistence is not available yet"
+            DesktopPersistenceWrite::Saved
+        ));
+
+        assert!(matches!(
+            DesktopPersistenceService::load_state(),
+            DesktopPersistenceLoad::Loaded(assignments)
+                if assignments.get("eDP-1") == Some(&"item-1".to_string())
         ));
 
         assert!(matches!(
             DesktopPersistenceService::clear_assignment("eDP-1"),
-            DesktopPersistenceWrite::Unavailable { reason }
-                if reason == "Desktop persistence is not available yet"
+            DesktopPersistenceWrite::Cleared
         ));
     }
 
