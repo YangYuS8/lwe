@@ -31,7 +31,7 @@ fn summary_copy(reason: CompatibilityReason) -> String {
         }
         CompatibilityReason::MissingProjectMetadata => "Needs project metadata".to_string(),
         CompatibilityReason::MissingPrimaryAsset => "Needs primary asset".to_string(),
-        CompatibilityReason::UnsupportedWebItem => "Web support coming later".to_string(),
+        CompatibilityReason::UnsupportedWebItem => "Web runtime unsupported".to_string(),
         CompatibilityReason::UnsupportedProjectType => "Project type not supported yet".to_string(),
     }
 }
@@ -122,7 +122,7 @@ mod tests {
         let explanation = compatibility_explanation(&assessment);
 
         assert_eq!(summary.reason_code, "unsupported_web_item");
-        assert_eq!(summary.summary_copy, "Web support coming later");
+        assert_eq!(summary.summary_copy, "Web runtime unsupported");
         assert_eq!(
             explanation.next_step,
             CompatibilityNextStep::WaitForFutureSupport

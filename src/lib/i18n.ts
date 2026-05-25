@@ -45,7 +45,13 @@ const dictionaries = {
       headerTitle: 'Local Workshop sync',
       headerSubtitle:
         'Review local sync state and search Steam Workshop online with saved filters.',
+      localCatalog: 'Local catalog',
+      localCatalogTitle: 'Synchronized Workshop content',
+      localCatalogDescription:
+        'Refresh Steam-managed local content and review whether each item is synced, missing metadata, missing a primary asset, or outside the current runtime scope.',
       refreshCatalog: 'Refresh Catalog',
+      refreshingCatalog: 'Refreshing…',
+      selectLocalItemLabel: 'Select local Workshop item {itemTitle}',
       onlineSearch: 'Online search',
       searchLabel: 'Search query',
       searchPlaceholder: 'Search Steam Workshop',
@@ -76,6 +82,12 @@ const dictionaries = {
         scene: 'Scene items are recognized for metadata and compatibility reporting, but are not runnable by the current video runtime.',
         web: 'Web items are recognized for reporting only and are not runnable by the current video runtime.',
         application: 'Application items are outside the current runtime scope.'
+      },
+      syncStatusDescriptions: {
+        synced: 'Project metadata and the primary asset were found locally.',
+        missing_project: 'The Workshop directory exists, but project.json is missing or malformed.',
+        missing_asset: 'Project metadata exists, but the primary wallpaper asset is missing.',
+        unsupported_type: 'The item is recognized, but this runtime cannot run its type.'
       },
       ageRatingLabels: {
         g: 'G',
@@ -330,7 +342,13 @@ const dictionaries = {
       navDescription: '同步 Steam 创意工坊项目并刷新目录。',
       headerTitle: '本地创意工坊同步',
       headerSubtitle: '查看本地同步状态，并使用已保存筛选在线搜索 Steam 创意工坊。',
+      localCatalog: '本地目录',
+      localCatalogTitle: '已同步的创意工坊内容',
+      localCatalogDescription:
+        '刷新由 Steam 管理的本地内容，并查看每个项目是已同步、缺少元数据、缺少主资源，还是超出当前运行时范围。',
       refreshCatalog: '刷新目录',
+      refreshingCatalog: '正在刷新…',
+      selectLocalItemLabel: '选择本地创意工坊项目 {itemTitle}',
       onlineSearch: '在线搜索',
       searchLabel: '搜索词',
       searchPlaceholder: '搜索 Steam 创意工坊',
@@ -361,6 +379,12 @@ const dictionaries = {
         scene: '场景项目可用于元数据和兼容性报告，但当前视频运行时不可运行。',
         web: '网页项目仅用于报告识别，当前视频运行时不可运行。',
         application: '应用程序项目不在当前运行时范围内。'
+      },
+      syncStatusDescriptions: {
+        synced: '已在本地找到项目元数据和主资源。',
+        missing_project: '创意工坊目录存在，但 project.json 缺失或格式错误。',
+        missing_asset: '项目元数据存在，但主壁纸资源缺失。',
+        unsupported_type: '项目可识别，但当前运行时无法运行此类型。'
       },
       ageRatingLabels: {
         g: 'G',
