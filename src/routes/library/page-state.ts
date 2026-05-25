@@ -33,12 +33,15 @@ export const resolveLibraryApplyRefreshState = ({
   librarySnapshotRefreshSucceeded?: boolean;
 }): LibraryApplyRefreshState => {
   const refreshLibrarySnapshot = invalidations.includes('library');
+  const refreshDesktopSnapshot = invalidations.includes('desktop');
   const refreshLibraryDetailId =
-    refreshLibrarySnapshot && librarySnapshotRefreshSucceeded ? selectedItemId : null;
+    (refreshLibrarySnapshot || refreshDesktopSnapshot) && librarySnapshotRefreshSucceeded
+      ? selectedItemId
+      : null;
 
   return {
     refreshLibrarySnapshot,
-    refreshDesktopSnapshot: invalidations.includes('desktop'),
+    refreshDesktopSnapshot,
     refreshLibraryDetailId
   };
 };

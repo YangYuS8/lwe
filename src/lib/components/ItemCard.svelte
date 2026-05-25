@@ -2,13 +2,21 @@
 import { Card } from '$lib/ui/card';
   import CoverImage from '$lib/components/CoverImage.svelte';
 import { copy } from '$lib/i18n';
+import type { CompatibilitySummaryModel, ItemType } from '$lib/types';
 
   export let title: string;
 export let coverPath: string | null = null;
 export let selected = false;
 export let assignedMonitorLabels: string[] = [];
+export let itemType: ItemType | null = null;
+export let compatibility: CompatibilitySummaryModel | null = null;
+export let applySupported = false;
 export let selectLabel: string | null = null;
 export let onSelect: (() => void) | undefined = undefined;
+
+$: runtimeCopy = applySupported
+  ? $copy.components.itemCard.runtimeRunnable
+  : $copy.components.itemCard.runtimeUnavailable;
 </script>
 
 <Card
@@ -29,6 +37,28 @@ export let onSelect: (() => void) | undefined = undefined;
 
     <div class="grid min-w-0 gap-2 px-1 pb-1">
       <h3 class="line-clamp-2 text-base font-semibold leading-6 text-foreground">{title}</h3>
+
+      <div class="flex flex-wrap gap-2 text-[0.72rem] font-semibold uppercase tracking-[0.14em]">
+        {#if itemType}
+          <span class="rounded-full border border-border/80 bg-background/70 px-2.5 py-1 text-muted-foreground">
+            {$copy.labels.itemTypes[itemType]}
+          </span>
+        {/if}
+        {#if compatibility}
+          <span class="rounded-full border border-border/80 bg-background/70 px-2.5 py-1 text-muted-foreground">
+            {$copy.labels.compatibilityBadges[compatibility.badge]}
+          </span>
+        {/if}
+        <span
+          class={`rounded-full border px-2.5 py-1 ${applySupported ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300'}`}
+        >
+          {runtimeCopy}
+        </span>
+      </div>
+
+      {#if !applySupported}
+        <p class="text-xs leading-5 text-muted-foreground">{$copy.components.itemCard.runtimeUnavailableDetail}</p>
+      {/if}
 
       {#if assignedMonitorLabels.length > 0}
         <div class="lwe-subpanel gap-1.5 px-3.5 py-3">

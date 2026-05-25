@@ -281,7 +281,10 @@ const dictionaries = {
         expandStatusHint: 'Expand this section to review the latest restore status for this display.'
       },
       itemCard: {
-        assignedTo: 'Assigned to'
+        assignedTo: 'Assigned to',
+        runtimeRunnable: 'Runnable video',
+        runtimeUnavailable: 'Recognized only',
+        runtimeUnavailableDetail: 'Recognized for Library and compatibility reporting; not runnable by the current video runtime.'
       }
     }
   },
@@ -545,7 +548,10 @@ const dictionaries = {
         expandStatusHint: '展开此区域以查看这个显示器的最新恢复状态。'
       },
       itemCard: {
-        assignedTo: '已分配到'
+        assignedTo: '已分配到',
+        runtimeRunnable: '可运行视频',
+        runtimeUnavailable: '仅识别',
+        runtimeUnavailableDetail: '可用于 Library 和兼容性报告；当前视频运行时不可运行。'
       }
     }
   }

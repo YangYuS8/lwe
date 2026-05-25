@@ -6,12 +6,16 @@ This page describes the main LWE workflows.
 
 The Library is the daily-use home for local wallpaper content. Use it to review recognized wallpapers, inspect compatibility information, and apply supported items to monitors.
 
+Library cards now expose the item's content type, compatibility level, and runtime availability. Video items that can run on the verified runtime path are labeled as runnable, while recognized-only scene/web items are labeled as not runnable by the current video runtime before you open the detail panel.
+
 Typical Library flow:
 
 1. Open **Library**.
 2. Select a wallpaper.
 3. Review metadata and compatibility details.
 4. Apply it to a monitor, or clear the current assignment.
+
+After applying, clearing, or restoring desktop assignments, LWE refreshes the selected Library detail where possible so assigned-monitor labels stay aligned with the Desktop page. If refresh fails, the populated detail view remains visible and the error is shown inline.
 
 ## Workshop
 

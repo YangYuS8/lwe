@@ -476,6 +476,9 @@
                 coverPath={item.coverPath}
                 selected={snapshot.selectedItemId === item.id}
                 assignedMonitorLabels={item.assignedMonitorLabels ?? []}
+                itemType={item.itemType}
+                compatibility={item.compatibility}
+                applySupported={item.applySupported}
                 selectLabel={formatCopy($copy.library.selectItemLabel, { itemTitle: item.title })}
                 onSelect={() => selectItem(item.id)}
               />

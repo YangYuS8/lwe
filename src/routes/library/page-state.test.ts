@@ -33,7 +33,7 @@ describe('library page state', () => {
     });
   });
 
-  it('does not refresh selected detail when apply only invalidates desktop state', () => {
+  it('refreshes selected detail when apply only invalidates desktop state', () => {
     expect(
       resolveLibraryApplyRefreshState({
         invalidations: ['desktop'],
@@ -42,7 +42,7 @@ describe('library page state', () => {
     ).toEqual({
       refreshLibrarySnapshot: false,
       refreshDesktopSnapshot: true,
-      refreshLibraryDetailId: null
+      refreshLibraryDetailId: 'scene-7'
     });
   });
 

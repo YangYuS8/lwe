@@ -90,6 +90,59 @@ describe('library page render', () => {
     expect(body).toContain('DISPLAY-2 (missing)');
   });
 
+  it('makes runnable and recognized-only Library items distinguishable from cards', () => {
+    setLibrarySnapshot({
+      items: [
+        {
+          id: 'video-7',
+          title: 'Forest Video',
+          itemType: 'video',
+          coverPath: null,
+          ageRating: 'g',
+          source: 'workshop',
+          compatibility: {
+            badge: 'fully_supported',
+            reasonCode: 'ready_for_library',
+            summaryCopy: 'Ready to use'
+          },
+          applySupported: true,
+          favorite: false,
+          assignedMonitorLabels: []
+        },
+        {
+          id: 'scene-8',
+          title: 'Forest Scene',
+          itemType: 'scene',
+          coverPath: null,
+          ageRating: 'g',
+          source: 'workshop',
+          compatibility: {
+            badge: 'partially_supported',
+            reasonCode: 'recognized_runtime_unsupported',
+            summaryCopy: 'Recognized only'
+          },
+          applySupported: false,
+          favorite: false,
+          assignedMonitorLabels: []
+        }
+      ],
+      selectedItemId: null,
+      monitorsAvailable: true,
+      monitorDiscoveryIssue: null,
+      desktopAssignmentIssue: null,
+      desktopAssignmentsAvailable: true,
+      stale: false
+    });
+
+    const { body } = render(LibraryPage);
+
+    expect(body).toContain('Forest Video');
+    expect(body).toContain('Runnable video');
+    expect(body).toContain('Forest Scene');
+    expect(body).toContain('Recognized only');
+    expect(body).toContain('not runnable by the current video runtime');
+  });
+
   it('renders route and detail placeholder copy in Simplified Chinese when zh-CN is active', () => {
     setPreferredLanguage('zh-CN');
 

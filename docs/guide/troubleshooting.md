@@ -15,6 +15,8 @@ Also confirm that Steam and Wallpaper Engine are installed locally.
 
 Review the compatibility status shown in LWE.
 
+In Library, first check the card badges: runnable video items can be applied, while recognized-only scene/web items are intentionally blocked by the current runtime. Opening the detail panel shows the same policy with more context.
+
 Possible reasons include:
 
 - the wallpaper type is recognized but not currently supported by the runtime;
