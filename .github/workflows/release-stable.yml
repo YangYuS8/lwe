@@ -52,7 +52,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Tauri CLI binary
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /home/runner/.cargo/bin/tauri
           key: ${{ runner.os }}-tauri-cli-v2
