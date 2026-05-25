@@ -1346,6 +1346,8 @@ mod tests {
             return;
         }
 
+        let _guard = real_desktop_flow_test_guard();
+
         let Some(monitor_id) = known_monitor_id() else {
             let result = DesktopService::clear_monitor("DISPLAY-1").unwrap();
 
@@ -1360,10 +1362,10 @@ mod tests {
             .expect("expected one real supported video Library item on this machine");
 
         let apply_result = DesktopService::apply_to_monitor(&monitor_id, &item_id).unwrap();
-        assert!(matches!(
-            apply_result,
-            DesktopApplyResult::AppliedWithBackend { .. }
-        ));
+        assert!(
+            matches!(apply_result, DesktopApplyResult::AppliedWithBackend { .. }),
+            "expected real backend apply before clear, got {apply_result:?}"
+        );
 
         let result = DesktopService::clear_monitor(&monitor_id).unwrap();
 
