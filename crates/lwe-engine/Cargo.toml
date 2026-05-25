@@ -44,7 +44,7 @@ calloop-wayland-source = "0.4"
 # Utilities
 bitflags = "2.4"
 libc = "0.2"
-lz4_flex = "0.11.3"
+lz4_flex = "0.13.1"
 
 [features]
 default = ["backend-wayland"]
