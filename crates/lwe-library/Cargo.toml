@@ -24,7 +24,7 @@ tokio = { version = "1.0", features = ["sync", "rt-multi-thread"] }
 rayon = "1.12"
 
 # File watching
-notify = "7.0"
+notify = "8.2"
 notify-debouncer-mini = "0.5"
 
 # Serialization
