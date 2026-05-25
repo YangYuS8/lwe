@@ -94,7 +94,7 @@
   }
 
   .lwe-shell-sidebar {
-    @apply grid content-start gap-5 rounded-3xl border border-border/70 bg-card/90 p-5 text-card-foreground shadow-[0_24px_56px_rgba(15,23,42,0.24)] lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:self-start lg:overflow-y-auto;
+    @apply grid content-start gap-5 rounded-3xl border border-border/70 bg-card/90 p-5 text-card-foreground shadow-[0_24px_56px_rgba(15,23,42,0.24)] lg:sticky lg:top-[5rem] lg:max-h-[calc(100vh-6.25rem)] lg:self-start lg:overflow-y-auto;
   }
 
   .lwe-shell-main {
