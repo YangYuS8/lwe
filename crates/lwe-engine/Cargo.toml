@@ -15,7 +15,7 @@ lwe-core = { path = "../lwe-core" }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
-smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop"] }
+smithay-client-toolkit = { version = "0.20", default-features = false, features = ["calloop"] }
 
 # EGL/OpenGL
 khronos-egl = { version = "6.0", features = ["dynamic"] }
