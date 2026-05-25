@@ -78,11 +78,11 @@
   }
 
   .lwe-shell-grid {
-    @apply grid min-h-[calc(100vh-4.75rem)] gap-4 p-4 lg:grid-cols-[minmax(248px,292px)_minmax(0,1fr)] lg:gap-6 lg:p-5;
+    @apply grid min-h-screen gap-4 p-4 pt-[4.75rem] lg:grid-cols-[minmax(248px,292px)_minmax(0,1fr)] lg:gap-6 lg:p-5 lg:pt-[5rem];
   }
 
   .lwe-titlebar {
-    @apply sticky top-4 z-40 flex h-11 select-none items-center justify-between rounded-3xl border border-border/70 bg-card/90 px-4 text-card-foreground shadow-[0_18px_44px_rgba(15,23,42,0.10)] backdrop-blur-xl;
+    @apply fixed left-4 right-4 top-4 z-40 flex h-11 select-none items-center justify-between rounded-3xl border border-border/70 bg-card/90 px-4 text-card-foreground shadow-[0_18px_44px_rgba(15,23,42,0.10)] backdrop-blur-xl lg:left-5 lg:right-5 lg:top-5;
   }
 
   .lwe-titlebar-button {

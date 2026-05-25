@@ -50,9 +50,7 @@
 <a class="lwe-skip-link" href="#app-content">{renderCopy.appShell.skipToContent}</a>
 
 <div class="lwe-shell-bg">
-  <div class="px-4 pt-4 lg:px-5 lg:pt-5">
-    <Titlebar />
-  </div>
+  <Titlebar />
   <div class="lwe-shell-grid">
     <aside class="lwe-shell-sidebar" aria-label={renderCopy.appShell.primaryLandmark}>
       <div class="grid gap-2 pb-1">
