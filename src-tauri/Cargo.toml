@@ -8,7 +8,7 @@ rust-version.workspace = true
 tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-toml = "0.8"
+toml = "0.9"
 open = "5.3"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "native-tls"] }
 lwe-engine = { path = "../crates/lwe-engine" }
