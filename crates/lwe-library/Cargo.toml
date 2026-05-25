@@ -21,7 +21,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 tokio = { version = "1.0", features = ["sync", "rt-multi-thread"] }
 
 # Parallel processing
-rayon = "1.10"
+rayon = "1.12"
 
 # File watching
 notify = "7.0"
