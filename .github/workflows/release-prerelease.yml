@@ -162,7 +162,7 @@ jobs:
         run: scripts/generate-release-notes.sh "LWE ${{ needs.build-prerelease.outputs.prerelease_version }}" release-notes.md
 
       - name: Publish GitHub prerelease
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.build-prerelease.outputs.prerelease_tag }}
           name: LWE ${{ needs.build-prerelease.outputs.prerelease_version }}
