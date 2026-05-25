@@ -53,6 +53,8 @@ describe('AppShell', () => {
     });
 
     expect(body).toContain('Skip to content');
+    expect(body).toContain('lwe-titlebar');
+    expect(body).toContain('data-tauri-drag-region');
     expect(body).toContain('href="#app-content"');
     expect(body).toContain('tabindex="-1"');
     expect(body).toContain('lwe-shell-sidebar');

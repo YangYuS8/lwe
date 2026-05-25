@@ -85,6 +85,7 @@ describe('ui page cache', () => {
       items: [
         {
           id: 'a',
+          workshopId: 'a',
           title: 'A',
           itemType: 'scene',
           coverPath: null,
@@ -96,6 +97,7 @@ describe('ui page cache', () => {
         },
         {
           id: 'b',
+          workshopId: 'b',
           title: 'B',
           itemType: 'scene',
           coverPath: null,

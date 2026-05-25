@@ -20,16 +20,17 @@ describe('workshop page render', () => {
     resetCache();
   });
 
-  it('renders local catalog controls even before a workshop snapshot is available', () => {
+  it('renders local marker controls without duplicating the local Library gallery', () => {
     const { body } = render(WorkshopPage);
 
-    expect(body).toContain('Local Workshop sync');
-    expect(body).toContain('Review local sync state and search Steam Workshop online with saved filters.');
-    expect(body).toContain('Local catalog');
+    expect(body).toContain('Steam Workshop discovery');
+    expect(body).toContain('Search Steam Workshop online');
+    expect(body).toContain('Local sync markers');
+    expect(body).toContain('Library owns local content.');
     expect(body).toContain('Refresh Catalog');
+    expect(body).toContain('Open Library');
     expect(body).toContain('Online search');
-    expect(body).toContain('No Workshop items are available in the current snapshot.');
-    expect(body).toContain('Select a Workshop item to inspect its current detail payload.');
+    expect(body).not.toContain('Select a Workshop item to inspect its current detail payload.');
   });
 
   it('renders route and detail placeholder copy in Simplified Chinese when zh-CN is active', () => {
@@ -38,24 +39,51 @@ describe('workshop page render', () => {
     const { body } = render(WorkshopPage);
 
     expect(body).toContain('创意工坊');
-    expect(body).toContain('本地创意工坊同步');
-    expect(body).toContain('本地目录');
+    expect(body).toContain('Steam 创意工坊发现');
+    expect(body).toContain('本地同步标记');
     expect(body).toContain('在线搜索');
     expect(body).toContain('显示筛选');
-    expect(body).toContain('当前快照中没有可用的创意工坊项目。');
-    expect(body).toContain('工坊详情');
+    expect(body).not.toContain('工坊详情');
   });
 
-  it('renders local Workshop sync states and runtime explanations', () => {
+  it('marks online results that already exist locally without rendering local item cards', () => {
     pageCache.set({
-      library: { snapshot: null, detail: null, stale: false },
+      library: {
+        snapshot: {
+          selectedItemId: null,
+          monitorsAvailable: true,
+          desktopAssignmentsAvailable: true,
+          stale: false,
+          items: [
+            {
+              id: 'workshop-1001',
+              workshopId: '1001',
+              title: 'Synced Video',
+              itemType: 'video',
+              coverPath: null,
+              ageRating: 'g',
+              source: 'workshop',
+              compatibility: {
+                badge: 'fully_supported',
+                reasonCode: 'ready_for_library',
+                summaryCopy: 'Ready to use'
+              },
+              applySupported: true,
+              favorite: false,
+              assignedMonitorLabels: []
+            }
+          ]
+        },
+        detail: null,
+        stale: false
+      },
       workshop: {
         snapshot: {
           selectedItemId: null,
           stale: false,
           items: [
             {
-              id: '1',
+              id: '1001',
               title: 'Synced Video',
               itemType: 'video',
               coverPath: null,
@@ -64,42 +92,6 @@ describe('workshop page render', () => {
                 badge: 'fully_supported',
                 reasonCode: 'ready_for_library',
                 summaryCopy: 'Ready to use'
-              }
-            },
-            {
-              id: '2',
-              title: 'Broken Metadata',
-              itemType: 'application',
-              coverPath: null,
-              syncStatus: 'missing_project',
-              compatibility: {
-                badge: 'unsupported',
-                reasonCode: 'missing_project',
-                summaryCopy: 'Missing project metadata'
-              }
-            },
-            {
-              id: '3',
-              title: 'Missing Asset',
-              itemType: 'video',
-              coverPath: null,
-              syncStatus: 'missing_asset',
-              compatibility: {
-                badge: 'unsupported',
-                reasonCode: 'missing_asset',
-                summaryCopy: 'Missing asset'
-              }
-            },
-            {
-              id: '4',
-              title: 'Web Wallpaper',
-              itemType: 'web',
-              coverPath: null,
-              syncStatus: 'unsupported_type',
-              compatibility: {
-                badge: 'unsupported',
-                reasonCode: 'unsupported_runtime',
-                summaryCopy: 'Runtime unsupported'
               }
             }
           ]
@@ -110,17 +102,48 @@ describe('workshop page render', () => {
       desktop: { snapshot: null, detail: null, stale: false },
       settings: { snapshot: null, detail: null, stale: false }
     });
+    setWorkshopOnlineCache({
+      query: 'ambient',
+      ageRatings: ['g'],
+      itemTypes: ['video'],
+      pageSize: 24,
+      result: {
+        query: 'ambient',
+        page: 1,
+        pageSize: 24,
+        hasMore: false,
+        totalApprox: 2,
+        items: [
+          {
+            id: '1001',
+            title: 'Online Synced Video',
+            previewUrl: null,
+            tags: ['video'],
+            itemType: 'video',
+            ageRating: 'g',
+            ageRatingReason: 'No mature or explicit content markers were detected'
+          },
+          {
+            id: '1002',
+            title: 'Online Only Video',
+            previewUrl: null,
+            tags: ['video'],
+            itemType: 'video',
+            ageRating: 'g',
+            ageRatingReason: 'No mature or explicit content markers were detected'
+          }
+        ]
+      }
+    });
 
     const { body } = render(WorkshopPage);
 
-    expect(body).toContain('Synced Video');
-    expect(body).toContain('Project metadata and the primary asset were found locally.');
-    expect(body).toContain('Broken Metadata');
-    expect(body).toContain('project.json is missing or malformed');
-    expect(body).toContain('Missing Asset');
-    expect(body).toContain('primary wallpaper asset is missing');
-    expect(body).toContain('Web Wallpaper');
-    expect(body).toContain('this runtime cannot run its type');
+    expect(body).toContain('1 local Workshop items are available for online result markers.');
+    expect(body).toContain('Online Synced Video');
+    expect(body).toContain('Online Only Video');
+    expect(body).toContain('In Library');
+    expect(body).toContain('Online only');
+    expect(body).not.toContain('Project metadata and the primary asset were found locally.');
   });
 
   it('labels scene and web online results as recognized only, not locally synced or runnable', () => {

@@ -63,6 +63,27 @@ describe('DesktopMonitorCard', () => {
     expect(body).not.toContain('>Desktop<');
   });
 
+  it('omits the large no-cover artwork placeholder when no monitor cover is available', () => {
+    const { body } = render(DesktopMonitorCard, {
+      props: {
+        displayName: 'Primary',
+        monitorId: 'DISPLAY-1',
+        resolution: '1920x1080',
+        currentItemLabel: 'No saved assignment',
+        currentCoverPath: null,
+        runtimeStatus: 'idle',
+        restoreState: null,
+        restoreIssue: null,
+        missing: false
+      }
+    });
+
+    expect(body).toContain('Primary');
+    expect(body).toContain('No saved assignment');
+    expect(body).not.toContain('No Cover');
+    expect(body).not.toContain('Artwork will appear here when available.');
+  });
+
   it('localizes frontend-owned runtime and restore badges through centralized copy', () => {
     setPreferredLanguage('zh-CN');
 

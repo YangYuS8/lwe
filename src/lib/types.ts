@@ -102,6 +102,7 @@ export interface WorkshopOnlineSearchResult {
 
 export interface LibraryItemSummary {
   id: string;
+  workshopId: string;
   title: string;
   itemType: ItemType;
   coverPath: string | null;

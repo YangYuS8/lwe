@@ -67,10 +67,12 @@
   class="lwe-panel-compact"
   aria-label={formatCopy(desktopMonitorCardCopy.ariaLabel, { displayName })}
 >
-  <CoverImage
-    coverPath={currentCoverPath}
-    label={formatCopy(desktopMonitorCardCopy.currentItemLabel, { displayName })}
-  />
+  {#if currentCoverPath}
+    <CoverImage
+      coverPath={currentCoverPath}
+      label={formatCopy(desktopMonitorCardCopy.currentItemLabel, { displayName })}
+    />
+  {/if}
 
   <div class="grid gap-4 px-1 pb-1">
     <div class="grid gap-3.5">

@@ -34,6 +34,7 @@ describe('library page render', () => {
       items: [
         {
           id: 'video-7',
+          workshopId: '7',
           title: 'Forest Video',
           itemType: 'video',
           coverPath: null,
@@ -95,6 +96,7 @@ describe('library page render', () => {
       items: [
         {
           id: 'video-7',
+          workshopId: '7',
           title: 'Forest Video',
           itemType: 'video',
           coverPath: null,
@@ -111,6 +113,7 @@ describe('library page render', () => {
         },
         {
           id: 'scene-8',
+          workshopId: '8',
           title: 'Forest Scene',
           itemType: 'scene',
           coverPath: null,
@@ -173,6 +176,7 @@ describe('library page render', () => {
       items: [
         {
           id: 'video-7',
+          workshopId: '7',
           title: 'Forest Video',
           itemType: 'video',
           coverPath: null,

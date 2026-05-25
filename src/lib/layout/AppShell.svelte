@@ -2,6 +2,7 @@
   import { browser } from '$app/environment';
   import type { Snippet } from 'svelte';
   import { copy, getCopyForLanguage, type PreferredLanguage } from '$lib/i18n';
+  import Titlebar from '$lib/layout/Titlebar.svelte';
 
   type NavItem = {
     href: string;
@@ -49,6 +50,9 @@
 <a class="lwe-skip-link" href="#app-content">{renderCopy.appShell.skipToContent}</a>
 
 <div class="lwe-shell-bg">
+  <div class="px-4 pt-4 lg:px-5 lg:pt-5">
+    <Titlebar />
+  </div>
   <div class="lwe-shell-grid">
     <aside class="lwe-shell-sidebar" aria-label={renderCopy.appShell.primaryLandmark}>
       <div class="grid gap-2 pb-1">

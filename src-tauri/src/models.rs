@@ -184,6 +184,7 @@ pub struct WorkshopItemDetail {
 #[serde(rename_all = "camelCase")]
 pub struct LibraryItemSummary {
     pub id: String,
+    pub workshop_id: String,
     pub title: String,
     pub item_type: ItemType,
     pub cover_path: Option<String>,
@@ -547,6 +548,7 @@ mod tests {
 
         let library_item = LibraryItemSummary {
             id: "scene-7".to_string(),
+            workshop_id: "7".to_string(),
             title: "Forest Scene".to_string(),
             item_type: ItemType::Scene,
             cover_path: None,

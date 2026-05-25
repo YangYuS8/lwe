@@ -78,7 +78,15 @@
   }
 
   .lwe-shell-grid {
-    @apply grid min-h-screen gap-4 p-4 lg:grid-cols-[minmax(248px,292px)_minmax(0,1fr)] lg:gap-6 lg:p-5;
+    @apply grid min-h-[calc(100vh-4.75rem)] gap-4 p-4 lg:grid-cols-[minmax(248px,292px)_minmax(0,1fr)] lg:gap-6 lg:p-5;
+  }
+
+  .lwe-titlebar {
+    @apply sticky top-4 z-40 flex h-11 select-none items-center justify-between rounded-3xl border border-border/70 bg-card/90 px-4 text-card-foreground shadow-[0_18px_44px_rgba(15,23,42,0.10)] backdrop-blur-xl;
+  }
+
+  .lwe-titlebar-button {
+    @apply inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/70 bg-background/70 text-xs font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
   }
 
   .lwe-skip-link {
@@ -86,7 +94,7 @@
   }
 
   .lwe-shell-sidebar {
-    @apply grid content-start gap-5 rounded-3xl border border-border/70 bg-card/90 p-5 text-card-foreground shadow-[0_24px_56px_rgba(15,23,42,0.24)];
+    @apply grid content-start gap-5 rounded-3xl border border-border/70 bg-card/90 p-5 text-card-foreground shadow-[0_24px_56px_rgba(15,23,42,0.24)] lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:self-start lg:overflow-y-auto;
   }
 
   .lwe-shell-main {
@@ -160,5 +168,17 @@
 
   .lwe-pill-label {
     @apply rounded-full border border-border/80 bg-muted/90 px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground;
+  }
+
+  .lwe-badge {
+    @apply rounded-full border border-border/80 bg-background/70 px-2.5 py-1 text-[0.72rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground;
+  }
+
+  .lwe-badge-success {
+    @apply border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300;
+  }
+
+  .lwe-badge-muted {
+    @apply border-border/80 bg-background/70 text-muted-foreground;
   }
 }

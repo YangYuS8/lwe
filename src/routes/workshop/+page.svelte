@@ -3,7 +3,6 @@
 import type { WorkshopOnlineSearchResult } from '$lib/types';
 import PageHeader from '$lib/layout/PageHeader.svelte';
 import { copy } from '$lib/i18n';
-import WorkshopDetailPanel from '$lib/components/WorkshopDetailPanel.svelte';
 import { Button } from '$lib/ui/button';
 import * as Select from '$lib/ui/select';
   import {
@@ -12,7 +11,7 @@ import * as Select from '$lib/ui/select';
     onlineRuntimeStatusKey
   } from './page-state';
   import {
-    loadWorkshopItemDetail,
+    loadLibraryPage,
     loadWorkshopPage,
     loadSettingsPage,
     openWorkshopInSteam,
@@ -23,8 +22,7 @@ import * as Select from '$lib/ui/select';
   import {
     setCurrentPage,
     pageCache,
-    setSelectedItem,
-    setWorkshopDetailIfSelected,
+    setLibrarySnapshot,
     setWorkshopOnlineCache,
     setWorkshopSnapshot,
     workshopOnlineCache
@@ -40,19 +38,8 @@ import * as Select from '$lib/ui/select';
   const onlineRuntimeDescription = (itemType: 'video' | 'scene' | 'web' | 'application') =>
     $copy.workshop.runtimeDescriptions[itemType];
 
-  const localRuntimeDescription = (itemType: 'video' | 'scene' | 'web' | 'application' | 'other') => {
-    if (itemType === 'other') {
-      return $copy.workshop.runtimeDescriptions.application;
-    }
-
-    return $copy.workshop.runtimeDescriptions[itemType];
-  };
-
   let pageError: string | null = null;
   let refreshLoading = false;
-  let detailLoading = false;
-  let detailError: string | null = null;
-  let detailRequestToken = 0;
   let onlineSearchTimer: ReturnType<typeof setTimeout> | null = null;
   let onlineSearchRequestToken = 0;
   let onlineSearchLoading = false;
@@ -89,9 +76,10 @@ const pageCount = (result: WorkshopOnlineSearchResult | null) => {
     return Math.max(1, Math.ceil(result.totalApprox / result.pageSize));
 };
 
-  $: workshopSnapshot = $pageCache.workshop.snapshot;
-  $: workshopDetail = $pageCache.workshop.detail;
-  $: selectedWorkshopId = workshopSnapshot?.selectedItemId ?? null;
+  $: librarySnapshot = $pageCache.library.snapshot;
+  $: libraryWorkshopIds = new Set((librarySnapshot?.items ?? []).map((item) => item.workshopId));
+  $: libraryItemCount = libraryWorkshopIds.size;
+  $: isOnlineItemInLibrary = (workshopId: string) => libraryWorkshopIds.has(workshopId);
 
   const loadWorkshopSnapshot = async () => {
     pageError = null;
@@ -100,6 +88,14 @@ const pageCount = (result: WorkshopOnlineSearchResult | null) => {
       setWorkshopSnapshot(await loadWorkshopPage());
     } catch (error) {
       pageError = readError(error);
+    }
+  };
+
+  const loadLibraryMarkers = async () => {
+    try {
+      setLibrarySnapshot(await loadLibraryPage());
+    } catch {
+      // Online discovery still works when local Library markers cannot be loaded.
     }
   };
 
@@ -112,45 +108,11 @@ const pageCount = (result: WorkshopOnlineSearchResult | null) => {
       if (outcome.currentUpdate) {
         setWorkshopSnapshot(outcome.currentUpdate);
       }
-      detailError = null;
+      await loadLibraryMarkers();
     } catch (error) {
       pageError = readError(error);
     } finally {
       refreshLoading = false;
-    }
-  };
-
-  const selectWorkshopItem = async (workshopId: string) => {
-    const requestToken = ++detailRequestToken;
-    detailLoading = true;
-    detailError = null;
-    setSelectedItem('workshop', workshopId);
-
-    try {
-      const detail = await loadWorkshopItemDetail(workshopId);
-      if (requestToken === detailRequestToken) {
-        setWorkshopDetailIfSelected(detail, workshopId);
-      }
-    } catch (error) {
-      if (requestToken === detailRequestToken) {
-        detailError = readError(error);
-      }
-    } finally {
-      if (requestToken === detailRequestToken) {
-        detailLoading = false;
-      }
-    }
-  };
-
-  const openSelectedWorkshopItemInSteam = async () => {
-    if (!selectedWorkshopId) {
-      return;
-    }
-
-    try {
-      await openWorkshopInSteam(selectedWorkshopId);
-    } catch (error) {
-      detailError = readError(error);
     }
   };
 
@@ -312,6 +274,9 @@ const runOnlineSearch = async (options?: { page?: number }) => {
     if (!$pageCache.workshop.snapshot || $pageCache.workshop.stale) {
       void loadWorkshopSnapshot();
     }
+    if (!$pageCache.library.snapshot || $pageCache.library.stale) {
+      void loadLibraryMarkers();
+    }
     const cachedOnlineSearch = $workshopOnlineCache;
     if (cachedOnlineSearch.result) {
       onlineSearchQuery = cachedOnlineSearch.query;
@@ -362,70 +327,29 @@ const runOnlineSearch = async (options?: { page?: number }) => {
     subtitle={$copy.workshop.headerSubtitle}
   />
 
-  <section class="grid gap-4 rounded-[1.125rem] border border-border/80 bg-card/90 p-4">
+  <section class="lwe-panel gap-4">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="grid gap-1.5">
-        <p class="lwe-eyebrow">{$copy.workshop.localCatalog}</p>
-        <h2 class="lwe-heading-md">{$copy.workshop.localCatalogTitle}</h2>
-        <p class="text-sm leading-6 text-muted-foreground">{$copy.workshop.localCatalogDescription}</p>
+        <p class="lwe-eyebrow">{$copy.workshop.localMarkers}</p>
+        <h2 class="lwe-heading-md">{$copy.workshop.localMarkersTitle}</h2>
+        <p class="text-sm leading-6 text-muted-foreground">{$copy.workshop.localMarkersDescription}</p>
       </div>
-      <Button variant="secondary" onclick={refreshLocalWorkshop} disabled={refreshLoading}>
-        {refreshLoading ? $copy.workshop.refreshingCatalog : $copy.workshop.refreshCatalog}
-      </Button>
+      <div class="flex flex-wrap gap-2">
+        <Button variant="secondary" onclick={refreshLocalWorkshop} disabled={refreshLoading}>
+          {refreshLoading ? $copy.workshop.refreshingCatalog : $copy.workshop.refreshCatalog}
+        </Button>
+        <a class="inline-flex h-9 items-center justify-center rounded-md border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground" href="/library">
+          {$copy.workshop.openLibrary}
+        </a>
+      </div>
     </div>
 
-    <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] xl:items-start">
-      <div class="grid gap-3">
-        {#if workshopSnapshot?.items.length}
-          <div class="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
-            {#each workshopSnapshot.items as item}
-              <button
-                type="button"
-                class={`grid gap-3 rounded-[1rem] border p-3 text-left transition hover:bg-accent/15 ${selectedWorkshopId === item.id ? 'border-primary/70 bg-accent/20' : 'border-border/80 bg-card'}`}
-                aria-label={$copy.workshop.selectLocalItemLabel.replace('{itemTitle}', item.title)}
-                aria-pressed={selectedWorkshopId === item.id}
-                on:click={() => {
-                  void selectWorkshopItem(item.id);
-                }}
-              >
-                <div class="grid gap-2">
-                  <p class="line-clamp-2 text-sm font-semibold text-foreground">{item.title}</p>
-                  <div class="flex flex-wrap gap-2 text-[0.72rem] font-semibold uppercase tracking-[0.14em]">
-                    <span class="rounded-full border border-border/80 bg-background/70 px-2.5 py-1 text-muted-foreground">
-                      {$copy.labels.itemTypes[item.itemType]}
-                    </span>
-                    <span class="rounded-full border border-border/80 bg-background/70 px-2.5 py-1 text-muted-foreground">
-                      {$copy.labels.workshopSyncStatuses[item.syncStatus]}
-                    </span>
-                    <span class="rounded-full border border-border/80 bg-background/70 px-2.5 py-1 text-muted-foreground">
-                      {$copy.labels.compatibilityBadges[item.compatibility.badge]}
-                    </span>
-                  </div>
-                  <p class="text-xs leading-5 text-muted-foreground">
-                    {$copy.workshop.syncStatusDescriptions[item.syncStatus]}
-                  </p>
-                  <p class="text-xs leading-5 text-muted-foreground">
-                    {localRuntimeDescription(item.itemType)}
-                  </p>
-                </div>
-              </button>
-            {/each}
-          </div>
-        {:else}
-          <p class="lwe-info-banner" role="status" aria-live="polite">{$copy.workshop.empty}</p>
-        {/if}
-      </div>
-
-      <WorkshopDetailPanel
-        detail={workshopDetail}
-        loading={detailLoading}
-        error={detailError}
-        openInSteam={selectedWorkshopId ? openSelectedWorkshopItemInSteam : null}
-      />
-    </div>
+    <p class="lwe-info-banner" role="status" aria-live="polite">
+      {$copy.workshop.localMarkersCount.replace('{count}', String(libraryItemCount))}
+    </p>
   </section>
 
-  <section class="grid gap-4 rounded-[1.125rem] border border-border/80 bg-card/90 p-4">
+  <section class="lwe-panel gap-4">
     <p class="lwe-eyebrow">{$copy.workshop.onlineSearch}</p>
 
     <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
@@ -659,6 +583,15 @@ const runOnlineSearch = async (options?: { page?: number }) => {
                     <span class="rounded-full border border-border/80 bg-background px-2 py-0.5 text-xs font-medium text-foreground">
                       {onlineRuntimeLabel(item.itemType)}
                     </span>
+                    {#if isOnlineItemInLibrary(item.id)}
+                      <span class="lwe-badge lwe-badge-success px-2 py-0.5 text-xs">
+                        {$copy.workshop.alreadyLocal}
+                      </span>
+                    {:else}
+                      <span class="lwe-badge lwe-badge-muted px-2 py-0.5 text-xs">
+                        {$copy.workshop.onlineOnly}
+                      </span>
+                    {/if}
                   </div>
                   <p class="text-xs leading-5 text-muted-foreground">
                     {onlineRuntimeDescription(item.itemType)}

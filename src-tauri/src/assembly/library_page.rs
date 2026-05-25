@@ -44,6 +44,7 @@ fn assemble_library_summary(entry: AssessedWorkshopCatalogEntry) -> LibraryItemS
 
     LibraryItemSummary {
         id: entry.entry.library_item_id.clone().unwrap_or_default(),
+        workshop_id: entry.entry.workshop_id.to_string(),
         title: entry.entry.title.clone(),
         item_type: item_type_from_project_type(entry.entry.project_type),
         cover_path: cover_path(&entry.entry),
