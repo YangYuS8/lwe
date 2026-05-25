@@ -26,7 +26,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@types/node": "^25.9.1",
     "autoprefixer": "^10.4.27",
-    "bits-ui": "^2.17.2",
+    "bits-ui": "^2.18.1",
     "postcss": "^8.5.8",
     "shadcn-svelte": "^1.2.7",
     "svelte": "^5.55.9",
