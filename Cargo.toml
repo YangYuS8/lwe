@@ -54,7 +54,7 @@ chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
 
 # Async
-tokio = { version = "1.0", features = ["sync", "rt-multi-thread"] }
+tokio = { version = "1.52", features = ["sync", "rt-multi-thread"] }
 
 # Testing
 tempfile = "3.8"
