@@ -292,6 +292,12 @@ pub struct SettingsPageSnapshot {
     pub stale: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticsSnapshot {
+    pub text: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

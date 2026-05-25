@@ -40,6 +40,8 @@ describe('settings page render', () => {
     expect(body).toContain('Current settings');
     expect(body).toContain('Edit settings');
     expect(body).toContain('Steam integration');
+    expect(body).toContain('Copyable diagnostics');
+    expect(body).toContain('Generate diagnostics');
     expect(body).toContain('Steam is required to launch Wallpaper Engine content.');
     expect(body).toContain('English');
     expect(body).toContain('Follow system theme');
@@ -99,6 +101,7 @@ describe('settings page render', () => {
     expect(body).toContain('设置');
     expect(body).toContain('应用偏好');
     expect(body).toContain('当前设置');
+    expect(body).toContain('可复制诊断信息');
     expect(body).toContain('编辑设置');
   });
 

@@ -5,7 +5,7 @@
   import { Button } from '$lib/ui/button';
   import { Card } from '$lib/ui/card';
   import * as Select from '$lib/ui/select';
-  import { loadSettingsPage, updateSettings } from '$lib/ipc';
+  import { loadDiagnostics, loadSettingsPage, updateSettings } from '$lib/ipc';
   import {
     applyThemePreference,
     needsPageLoad,
@@ -72,6 +72,10 @@
   let loading = false;
   let saving = false;
   let pageError: string | null = null;
+  let diagnosticsLoading = false;
+  let diagnosticsError: string | null = null;
+  let diagnosticsText: string | null = null;
+  let diagnosticsCopied = false;
   let actionMessage: string | null = null;
   let draftSource: SettingsPageSnapshot | null = null;
   let isEditing = initialEditing;
@@ -162,6 +166,33 @@
     isEditing = false;
   };
 
+  const loadDiagnosticsText = async () => {
+    diagnosticsLoading = true;
+    diagnosticsError = null;
+    diagnosticsCopied = false;
+
+    try {
+      diagnosticsText = (await loadDiagnostics()).text;
+    } catch (error) {
+      diagnosticsError = readError(error);
+    } finally {
+      diagnosticsLoading = false;
+    }
+  };
+
+  const copyDiagnostics = async () => {
+    if (!diagnosticsText) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(diagnosticsText);
+      diagnosticsCopied = true;
+    } catch (error) {
+      diagnosticsError = readError(error);
+    }
+  };
+
   onMount(() => {
     setCurrentPage('settings');
     void ensurePage();
@@ -181,9 +212,13 @@
 
   {#if pageError}
     <p class="lwe-warning-banner" role="alert" aria-live="assertive">{pageError}</p>
-  {:else if loading && !hasSnapshot}
+  {/if}
+
+  {#if loading && !hasSnapshot}
     <p class="text-sm text-muted-foreground" role="status" aria-live="polite">{$copy.settings.loading}</p>
-  {:else if snapshot}
+  {/if}
+
+  {#if snapshot}
     <div class="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(280px,0.9fr)] xl:items-start">
       <Card class="lwe-panel gap-5">
         <div class="grid gap-1.5">
@@ -338,6 +373,37 @@
           </p>
         </div>
       </Card>
+
     </div>
   {/if}
+
+  <Card class="lwe-panel gap-4">
+    <div class="grid gap-1.5">
+      <p class="lwe-eyebrow">{$copy.settings.diagnostics}</p>
+      <h2 class="lwe-heading-md">{$copy.settings.diagnosticsTitle}</h2>
+      <p class="text-sm leading-6 text-muted-foreground">{$copy.settings.diagnosticsDescription}</p>
+    </div>
+
+    {#if diagnosticsError}
+      <p class="lwe-warning-banner" role="alert" aria-live="assertive">{diagnosticsError}</p>
+    {/if}
+
+    <div class="flex flex-wrap gap-3">
+      <Button variant="secondary" onclick={loadDiagnosticsText} disabled={diagnosticsLoading}>
+        {diagnosticsLoading ? $copy.settings.loadingDiagnostics : $copy.settings.generateDiagnostics}
+      </Button>
+      <Button variant="outline" onclick={copyDiagnostics} disabled={!diagnosticsText}>
+        {diagnosticsCopied ? $copy.settings.diagnosticsCopied : $copy.settings.copyDiagnostics}
+      </Button>
+    </div>
+
+    {#if diagnosticsText}
+      <textarea
+        readonly
+        class="min-h-72 w-full rounded-md border border-input bg-muted/60 p-3 font-mono text-xs leading-5 text-foreground"
+        value={diagnosticsText}
+        aria-label={$copy.settings.diagnosticsTitle}
+      ></textarea>
+    {/if}
+  </Card>
 </section>

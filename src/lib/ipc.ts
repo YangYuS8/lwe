@@ -4,6 +4,7 @@ import type {
   ActionOutcome,
   AppShellSnapshot,
   DesktopPageSnapshot,
+  DiagnosticsSnapshot,
   LibraryItemDetail,
   LibraryPageSnapshot,
   SettingsPageSnapshot,
@@ -42,6 +43,8 @@ export const searchWorkshopOnline = (input: WorkshopOnlineSearchInput) =>
   invokeCommand<WorkshopOnlineSearchResult>('search_workshop_online', { input });
 
 export const loadDesktopPage = () => invokeCommand<DesktopPageSnapshot>('load_desktop_page');
+
+export const loadDiagnostics = () => invokeCommand<DiagnosticsSnapshot>('load_diagnostics');
 
 export const applyLibraryItemToMonitor = (monitorId: string, itemId: string) =>
   invokeCommand<ActionOutcome<null>>('apply_library_item_to_monitor', { monitorId, itemId });

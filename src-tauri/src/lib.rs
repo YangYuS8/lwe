@@ -91,6 +91,7 @@ pub fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<
         commands::desktop::load_desktop_page,
         commands::desktop::apply_library_item_to_monitor,
         commands::desktop::clear_library_item_from_monitor,
+        commands::diagnostics::load_diagnostics,
         commands::settings::load_settings_page,
         commands::settings::update_settings,
     ])

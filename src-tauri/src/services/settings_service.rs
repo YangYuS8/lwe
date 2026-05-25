@@ -85,14 +85,7 @@ impl SettingsService {
             SettingsPersistenceWrite::Saved => {
                 if let Some(launch_on_login) = input.launch_on_login {
                     if let Err(reason) = Self::apply_launch_on_login(launch_on_login) {
-                        return match persistence.save_settings(&previous_settings) {
-                            SettingsPersistenceWrite::Saved => Err(reason),
-                            SettingsPersistenceWrite::Unavailable {
-                                reason: rollback_reason,
-                            } => Err(format!(
-                                "{reason}; failed to roll back settings persistence: {rollback_reason}"
-                            )),
-                        };
+                        eprintln!("launch-on-login update unavailable: {reason}");
                     }
                 }
 
@@ -210,14 +203,7 @@ impl SettingsService {
                     };
 
                     if let Err(reason) = apply_result {
-                        return match persistence.save_settings(&previous_settings) {
-                            SettingsPersistenceWrite::Saved => Err(reason),
-                            SettingsPersistenceWrite::Unavailable {
-                                reason: rollback_reason,
-                            } => Err(format!(
-                                "{reason}; failed to roll back settings persistence: {rollback_reason}"
-                            )),
-                        };
+                        eprintln!("launch-on-login update unavailable: {reason}");
                     }
                 }
 
@@ -228,7 +214,7 @@ impl SettingsService {
     }
 }
 
-fn steam_status_with_discovery(steam: Option<SteamLibrary>) -> (bool, String) {
+pub(crate) fn steam_status_with_discovery(steam: Option<SteamLibrary>) -> (bool, String) {
     match steam {
         Some(steam) => steam_status_for_library(&steam),
         None => (
@@ -239,7 +225,7 @@ fn steam_status_with_discovery(steam: Option<SteamLibrary>) -> (bool, String) {
     }
 }
 
-fn steam_status_for_library(steam: &SteamLibrary) -> (bool, String) {
+pub(crate) fn steam_status_for_library(steam: &SteamLibrary) -> (bool, String) {
     let workshop_paths = steam.workshop_content_path(WALLPAPER_ENGINE_APP_ID);
     if workshop_paths.is_empty() {
         return (
@@ -522,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_service_rolls_back_persisted_settings_when_autostart_update_fails() {
+    fn settings_service_keeps_persisted_settings_when_autostart_update_fails() {
         let settings_path = unique_test_path("settings-rollback").with_extension("toml");
         let blocked_config_root = unique_test_path("settings-rollback-config");
 
@@ -533,7 +519,7 @@ mod tests {
         .unwrap();
         std::fs::write(&blocked_config_root, "not a directory").unwrap();
 
-        let error = SettingsService::update_settings_for_test(
+        let result = SettingsService::update_settings_for_test(
             settings_path.clone(),
             blocked_config_root,
             SettingsUpdateInput {
@@ -546,15 +532,17 @@ mod tests {
                 workshop_item_types: Some(vec![crate::models::WorkshopOnlineItemType::Web]),
             },
         )
-        .expect_err("autostart failure should roll back saved settings");
+        .expect("autostart failure should not roll back saved settings");
 
-        assert!(error.contains("Failed to create autostart directory"));
+        assert!(!result.launch_on_login_available);
+        assert!(result.launch_on_login);
+        assert!(result.stale);
 
         let contents = std::fs::read_to_string(settings_path).unwrap();
-        assert!(contents.contains("language = \"en\""));
+        assert!(contents.contains("language = \"fr\""));
         assert!(contents.contains("theme = \"system\""));
-        assert!(contents.contains("launch_on_login = false"));
-        assert!(!contents.contains("steam_web_api_key = \"new-key\""));
-        assert!(!contents.contains("workshop_query = \"new-query\""));
+        assert!(contents.contains("launch_on_login = true"));
+        assert!(contents.contains("steam_web_api_key = \"new-key\""));
+        assert!(contents.contains("workshop_query = \"new-query\""));
     }
 }

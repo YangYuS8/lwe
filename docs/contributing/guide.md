@@ -101,6 +101,19 @@ pnpm docs:build
 
 For documentation-only changes, `pnpm docs:build` is the required validation.
 
+## Release smoke checklist
+
+Before publishing a stable or prerelease tag, verify the release path that the tag will exercise:
+
+1. Run the required CI-equivalent checks locally when the change is broad: `pnpm check`, `pnpm test`, `pnpm build`, `pnpm docs:build`, `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo check --workspace`, and `cargo test --workspace`.
+2. Confirm the GitHub Actions quality workflow is passing on the commit to be tagged.
+3. Confirm release workflows build and upload the expected Linux artifacts: `.deb`, `.rpm`, and `.AppImage`.
+4. Confirm package-channel metadata matches the release channel: AUR stable (`lwe`) for stable tags and AUR git (`lwe-git`) for development/prerelease paths.
+5. For runtime-affecting release candidates, run the real desktop runtime acceptance checklist below on a verified Wayland + `niri` session before describing the runtime path as supported.
+6. Smoke the fresh install path when possible: install a package artifact, open Settings, generate diagnostics, review Workshop/Library state, apply a compatible video wallpaper, clear it, restart LWE, and confirm saved assignment behavior is visible.
+
+Package install success only proves the application starts from that package. It does not guarantee runtime support on an unverified compositor, GPU/EGL stack, monitor layout, or wallpaper type.
+
 ## Real desktop runtime acceptance
 
 Runtime changes must be validated on a real supported desktop session before they are described as supported. The current verified target is Wayland with `niri` and video wallpapers.
@@ -135,4 +148,5 @@ Useful reports include:
 - monitor layout;
 - wallpaper type if known (`video`, `scene`, or `web`);
 - compatibility status shown by LWE;
+- copyable diagnostics from Settings, with the Steam Web API key redacted;
 - terminal logs when available.

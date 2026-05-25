@@ -189,6 +189,10 @@ export interface SettingsUpdateInput {
   workshopItemTypes?: WorkshopOnlineItemType[] | null;
 }
 
+export interface DiagnosticsSnapshot {
+  text: string;
+}
+
 export interface AppShellPatch {
   workshopSyncedCount?: number;
   libraryCount?: number;

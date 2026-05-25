@@ -1,6 +1,6 @@
 # v1 version roadmap
 
-This page captures the maintained development direction from the current v0.9.0 development line toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
+This page captures the maintained development direction from the current v0.9.5 development line toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
 
 ## v1 target
 
@@ -163,6 +163,8 @@ Diagnostics should include:
 - Wallpaper Engine Workshop content availability;
 - Library counts by compatibility/runtime state;
 - current support-scope reminder.
+
+Implementation note: package type is reported as unknown/local build unless provided by the package manager or reporter; diagnostics should not claim perfect environment detection.
 
 Acceptance criteria:
 

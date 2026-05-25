@@ -286,6 +286,37 @@ mod tests {
     }
 
     #[test]
+    fn settings_persistence_reload_after_service_restart_preserves_release_settings() {
+        let path = test_settings_path();
+        let first_service = SettingsPersistenceService::for_test(path.clone());
+        let settings = PersistedSettings {
+            language: "zh-CN".to_string(),
+            theme: "dark".to_string(),
+            launch_on_login: true,
+            steam_web_api_key: "restart-key".to_string(),
+            workshop_query: "mountain".to_string(),
+            workshop_age_ratings: vec![WorkshopAgeRating::G, WorkshopAgeRating::Pg13],
+            workshop_item_types: vec![
+                WorkshopOnlineItemType::Video,
+                WorkshopOnlineItemType::Scene,
+                WorkshopOnlineItemType::Web,
+            ],
+        };
+
+        assert!(matches!(
+            first_service.save_settings(&settings),
+            crate::results::settings_persistence::SettingsPersistenceWrite::Saved
+        ));
+
+        let restarted_service = SettingsPersistenceService::for_test(path);
+
+        assert_eq!(
+            restarted_service.load_settings(),
+            SettingsPersistenceLoad::Loaded(settings)
+        );
+    }
+
+    #[test]
     fn settings_persistence_atomic_save_cleans_up_temp_file() {
         let path = test_settings_path();
         let service = SettingsPersistenceService::for_test(path.clone());
