@@ -1,0 +1,61 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      sveltekit:
+        patterns:
+          - "@sveltejs/*"
+          - svelte
+          - svelte-check
+      vite-tooling:
+        patterns:
+          - vite
+          - vitepress
+          - vitest
+      tailwind-tooling:
+        patterns:
+          - tailwindcss
+          - autoprefixer
+          - postcss
+          - tailwind-merge
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:30"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      rust-runtime:
+        patterns:
+          - tokio
+          - reqwest
+          - tracing*
+      rust-serialization:
+        patterns:
+          - serde*
+          - toml
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "10:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
