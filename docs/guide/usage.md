@@ -23,6 +23,12 @@ Workshop features are designed around discovery and acquisition orchestration. L
 
 Workshop browsing requires a Steam Web API key configured in **Settings**. Steam may still be responsible for subscription, download, and account-owned content synchronization.
 
+Online Workshop results are discovery-only. A result being visible in LWE does not mean the item is already synchronized locally, and LWE does not directly download Workshop content. Use **Open in Steam** as the acquisition and subscription handoff, then refresh local Workshop content after Steam finishes synchronizing.
+
+Search result cards label inferred runtime expectations. Video results are the only currently runnable type after local sync. Scene and web results are recognized for metadata and compatibility reporting, but are not runnable by the current video runtime. Application results are outside the current runtime scope.
+
+When the Steam Web API key is missing, Workshop search points you back to **Settings**. Settings also distinguishes the common Steam integration states where possible: Steam not detected, Steam detected but Wallpaper Engine Workshop content missing, Wallpaper Engine present but no local Workshop items synchronized yet, and local Workshop content available.
+
 ## Compatibility levels
 
 Treat compatibility information as the source of truth for whether a wallpaper should work in the current app.

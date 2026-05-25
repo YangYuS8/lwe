@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   isLatestWorkshopOnlineSearchResponse,
+  isMissingSteamApiKeyError,
   nextWorkshopOnlineSearchPage,
+  onlineRuntimeStatusKey,
   resolveWorkshopRefreshState
 } from './page-state';
 
@@ -87,5 +89,24 @@ describe('workshop online pagination helper', () => {
 
   it('keeps page unchanged when no more results are available', () => {
     expect(nextWorkshopOnlineSearchPage({ currentPage: 2, hasMore: false })).toBe(2);
+  });
+});
+
+describe('workshop online clarity helpers', () => {
+  it('detects missing Steam API key errors for Settings guidance', () => {
+    expect(
+      isMissingSteamApiKeyError(
+        'Steam Web API key is required for online Workshop search. Add it in Settings.'
+      )
+    ).toBe(true);
+    expect(isMissingSteamApiKeyError('Steam Workshop QueryFiles returned an error')).toBe(false);
+    expect(isMissingSteamApiKeyError(null)).toBe(false);
+  });
+
+  it('maps online item types to honest runtime labels', () => {
+    expect(onlineRuntimeStatusKey('video')).toBe('runnable');
+    expect(onlineRuntimeStatusKey('scene')).toBe('recognizedOnly');
+    expect(onlineRuntimeStatusKey('web')).toBe('recognizedOnly');
+    expect(onlineRuntimeStatusKey('application')).toBe('unsupported');
   });
 });

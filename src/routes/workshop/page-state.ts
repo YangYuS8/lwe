@@ -17,6 +17,8 @@ type WorkshopOnlineSearchPageInput = {
   hasMore: boolean;
 };
 
+type WorkshopOnlineItemType = 'video' | 'scene' | 'web' | 'application';
+
 type WorkshopRefreshState = {
   nextSelection: string | null;
   detailLoading: boolean;
@@ -70,3 +72,18 @@ export const nextWorkshopOnlineSearchPage = ({
   currentPage,
   hasMore
 }: WorkshopOnlineSearchPageInput) => (hasMore ? currentPage + 1 : currentPage);
+
+export const isMissingSteamApiKeyError = (message: string | null) =>
+  Boolean(message?.toLowerCase().includes('steam web api key'));
+
+export const onlineRuntimeStatusKey = (itemType: WorkshopOnlineItemType) => {
+  if (itemType === 'video') {
+    return 'runnable' as const;
+  }
+
+  if (itemType === 'application') {
+    return 'unsupported' as const;
+  }
+
+  return 'recognizedOnly' as const;
+};

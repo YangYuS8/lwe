@@ -3,7 +3,7 @@ import { render } from 'svelte/server';
 
 import WorkshopPage from './+page.svelte';
 import { resetPreferredLanguage, setPreferredLanguage } from '$lib/i18n';
-import { pageCache } from '$lib/stores/ui';
+import { pageCache, setWorkshopOnlineCache } from '$lib/stores/ui';
 
 const resetCache = () => {
   pageCache.set({
@@ -41,5 +41,49 @@ describe('workshop page render', () => {
     expect(body).toContain('显示筛选');
     expect(body).not.toContain('当前快照中没有可用的创意工坊项目。');
     expect(body).not.toContain('工坊详情');
+  });
+
+  it('labels scene and web online results as recognized only, not locally synced or runnable', () => {
+    setWorkshopOnlineCache({
+      query: 'ambient',
+      ageRatings: ['g'],
+      itemTypes: ['scene', 'web'],
+      pageSize: 24,
+      result: {
+        query: 'ambient',
+        page: 1,
+        pageSize: 24,
+        hasMore: false,
+        totalApprox: 2,
+        items: [
+          {
+            id: '1001',
+            title: 'Ambient Scene',
+            previewUrl: null,
+            tags: ['scene'],
+            itemType: 'scene',
+            ageRating: 'g',
+            ageRatingReason: 'No mature or explicit content markers were detected'
+          },
+          {
+            id: '1002',
+            title: 'Dashboard Web',
+            previewUrl: null,
+            tags: ['web'],
+            itemType: 'web',
+            ageRating: 'g',
+            ageRatingReason: 'No mature or explicit content markers were detected'
+          }
+        ]
+      }
+    });
+
+    const { body } = render(WorkshopPage);
+
+    expect(body).toContain('Online results are discovery only.');
+    expect(body).toContain('Ambient Scene');
+    expect(body).toContain('Dashboard Web');
+    expect(body).toContain('Recognized only');
+    expect(body).toContain('not runnable by the current video runtime');
   });
 });

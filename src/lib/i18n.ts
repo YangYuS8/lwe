@@ -64,6 +64,19 @@ const dictionaries = {
       goToPage: 'Go',
       onlineResults: 'Online results',
       noOnlineResults: 'No matching online Workshop items were found for the current filters.',
+      missingApiKeySettingsHint: 'Online Workshop search needs a Steam Web API key. Open Settings and fill in Steam Web API Key, then return here to search.',
+      onlineResultAcquisitionNote: 'Online results are discovery only. Use Steam to subscribe or synchronize content; a visible search result does not mean it is already local.',
+      runtimeLabels: {
+        runnable: 'Runnable video',
+        recognizedOnly: 'Recognized only',
+        unsupported: 'Unsupported runtime'
+      },
+      runtimeDescriptions: {
+        video: 'Video items are the only current runnable runtime type after Steam syncs them locally.',
+        scene: 'Scene items are recognized for metadata and compatibility reporting, but are not runnable by the current video runtime.',
+        web: 'Web items are recognized for reporting only and are not runnable by the current video runtime.',
+        application: 'Application items are outside the current runtime scope.'
+      },
       ageRatingLabels: {
         g: 'G',
         pg_13: 'PG-13',
@@ -126,7 +139,7 @@ const dictionaries = {
       theme: 'Theme',
       launchOnLogin: 'Launch on login',
       steamWebApiKey: 'Steam Web API key',
-      steamWebApiKeyHint: 'Required for online Workshop search via Steam Web API QueryFiles.',
+      steamWebApiKeyHint: 'Required for online Workshop search via Steam Web API QueryFiles. LWE never downloads Workshop content directly.',
       steamWebApiKeySaved: 'Steam Web API key:',
       maskedKeyUnavailable: 'Not set',
       launchOnLoginUnavailable: 'Launch-on-login is currently unavailable on this machine.',
@@ -336,6 +349,19 @@ const dictionaries = {
       goToPage: '前往',
       onlineResults: '在线结果',
       noOnlineResults: '当前筛选条件下没有匹配的在线工坊项目。',
+      missingApiKeySettingsHint: '在线工坊搜索需要 Steam Web API 密钥。请打开设置并填写 Steam Web API Key，然后返回这里搜索。',
+      onlineResultAcquisitionNote: '在线结果仅用于发现内容。订阅或同步仍需要通过 Steam 完成；搜索结果可见并不代表内容已经在本机。',
+      runtimeLabels: {
+        runnable: '可运行视频',
+        recognizedOnly: '仅识别',
+        unsupported: '运行时不支持'
+      },
+      runtimeDescriptions: {
+        video: '视频项目在通过 Steam 同步到本地后，是当前唯一可运行的运行时类型。',
+        scene: '场景项目可用于元数据和兼容性报告，但当前视频运行时不可运行。',
+        web: '网页项目仅用于报告识别，当前视频运行时不可运行。',
+        application: '应用程序项目不在当前运行时范围内。'
+      },
       ageRatingLabels: {
         g: 'G',
         pg_13: 'PG-13',
@@ -396,7 +422,7 @@ const dictionaries = {
       theme: '主题',
       launchOnLogin: '登录时启动',
       steamWebApiKey: 'Steam Web API 密钥',
-      steamWebApiKeyHint: '用于通过 Steam Web API QueryFiles 进行在线工坊搜索。',
+      steamWebApiKeyHint: '用于通过 Steam Web API QueryFiles 进行在线工坊搜索。LWE 不会直接下载创意工坊内容。',
       steamWebApiKeySaved: 'Steam Web API 密钥：',
       maskedKeyUnavailable: '未设置',
       launchOnLoginUnavailable: '当前设备暂不支持登录时自动启动。',

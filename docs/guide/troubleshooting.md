@@ -6,16 +6,21 @@ Check the Steam Web API key first.
 
 - Open **Settings**.
 - Confirm that **Steam Web API Key** is filled in.
+- If Workshop search reports that the key is missing, use its Settings link, save the key, then return to Workshop search.
 - If needed, create or copy the key from <https://steamcommunity.com/dev/apikey>.
 - Confirm that you are signed in with a Steam account that owns Wallpaper Engine.
 
 Also confirm that Steam and Wallpaper Engine are installed locally.
+
+Search results are discovery-only. Seeing an item online does not mean it is downloaded or synchronized locally; use **Open in Steam** to subscribe or inspect the item in Steam.
 
 ## A wallpaper appears but cannot be applied
 
 Review the compatibility status shown in LWE.
 
 In Library, first check the card badges: runnable video items can be applied, while recognized-only scene/web items are intentionally blocked by the current runtime. Opening the detail panel shows the same policy with more context.
+
+Workshop online result cards use the same distinction: videos are the only current runnable target after local sync, while scene/web results are recognized-only and application results are unsupported for runtime.
 
 Possible reasons include:
 

@@ -1,4 +1,6 @@
-use lwe_library::SteamLibrary;
+use std::path::Path;
+
+use lwe_library::{SteamLibrary, WALLPAPER_ENGINE_APP_ID};
 
 use crate::models::SettingsUpdateInput;
 use crate::results::settings_persistence::{
@@ -119,7 +121,8 @@ impl SettingsService {
             AutostartState::Unavailable { .. } => (settings.launch_on_login, false),
         };
 
-        let (steam_required, steam_status_message) = steam_status();
+        let (steam_required, steam_status_message) =
+            steam_status_with_discovery(SteamLibrary::try_discover());
 
         SettingsPageData {
             language: settings.language,
@@ -225,22 +228,56 @@ impl SettingsService {
     }
 }
 
-fn steam_status() -> (bool, String) {
-    match SteamLibrary::try_discover() {
-        Some(steam) if steam.has_wallpaper_engine() => (
-            true,
-            "Steam and Wallpaper Engine are available for Workshop features".to_string(),
-        ),
-        Some(_) => (
-            true,
-            "Steam is available, but Wallpaper Engine was not found for Workshop features"
-                .to_string(),
-        ),
+fn steam_status_with_discovery(steam: Option<SteamLibrary>) -> (bool, String) {
+    match steam {
+        Some(steam) => steam_status_for_library(&steam),
         None => (
             true,
-            "Steam was not detected. Steam is required for Workshop features".to_string(),
+            "Steam was not detected. Steam is required for Workshop subscription and local Workshop synchronization. Online search also needs a Steam Web API key in Settings."
+                .to_string(),
         ),
     }
+}
+
+fn steam_status_for_library(steam: &SteamLibrary) -> (bool, String) {
+    let workshop_paths = steam.workshop_content_path(WALLPAPER_ENGINE_APP_ID);
+    if workshop_paths.is_empty() {
+        return (
+            true,
+            "Steam is available, but Wallpaper Engine Workshop content was not found. Install Wallpaper Engine in Steam and subscribe to wallpapers before refreshing local Workshop content."
+                .to_string(),
+        );
+    }
+
+    if !workshop_paths
+        .iter()
+        .any(|path| path_has_child_directory(path))
+    {
+        return (
+            true,
+            "Steam and Wallpaper Engine are available, but no local Wallpaper Engine Workshop content was found yet. Subscribe in Steam, wait for sync, then refresh the Workshop catalog."
+                .to_string(),
+        );
+    }
+
+    (
+        true,
+        "Steam, Wallpaper Engine, and local Workshop content are available. Online search still uses the saved Steam Web API key and does not imply local synchronization."
+            .to_string(),
+    )
+}
+
+fn path_has_child_directory(path: &Path) -> bool {
+    std::fs::read_dir(path)
+        .map(|entries| {
+            entries.filter_map(Result::ok).any(|entry| {
+                entry
+                    .file_type()
+                    .map(|file_type| file_type.is_dir())
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
 }
 
 fn current_launch_command() -> Result<Vec<String>, String> {
@@ -279,7 +316,7 @@ mod tests {
     use crate::models::SettingsUpdateInput;
     use crate::services::autostart_service::{AutostartService, AutostartState};
 
-    use super::SettingsService;
+    use super::{SettingsService, steam_status_with_discovery};
 
     fn unique_test_path(prefix: &str) -> PathBuf {
         let unique = SystemTime::now()
@@ -339,6 +376,56 @@ mod tests {
         assert_eq!(result.workshop_query, "nature");
         assert_eq!(result.workshop_age_ratings.len(), 1);
         assert_eq!(result.workshop_item_types.len(), 1);
+    }
+
+    #[test]
+    fn steam_status_distinguishes_missing_steam_without_network_or_api_calls() {
+        let (_required, message) = steam_status_with_discovery(None);
+
+        assert!(message.contains("Steam was not detected"));
+        assert!(message.contains("Steam Web API key"));
+    }
+
+    #[test]
+    fn steam_status_distinguishes_wallpaper_engine_missing_from_empty_content() {
+        let root = unique_test_path("settings-steam-root");
+        std::fs::create_dir_all(root.join("steamapps")).unwrap();
+
+        let (_required, missing_engine_message) =
+            steam_status_with_discovery(Some(lwe_library::SteamLibrary {
+                root: root.clone(),
+                libraries: Vec::new(),
+            }));
+
+        assert!(missing_engine_message.contains("Wallpaper Engine Workshop content was not found"));
+
+        let workshop_root = root
+            .join("steamapps/workshop/content")
+            .join(lwe_library::WALLPAPER_ENGINE_APP_ID.to_string());
+        std::fs::create_dir_all(&workshop_root).unwrap();
+
+        let (_required, empty_content_message) =
+            steam_status_with_discovery(Some(lwe_library::SteamLibrary {
+                root,
+                libraries: Vec::new(),
+            }));
+
+        assert!(empty_content_message.contains("no local Wallpaper Engine Workshop content"));
+
+        std::fs::create_dir_all(workshop_root.join("123456")).unwrap();
+        let populated_root = workshop_root
+            .ancestors()
+            .nth(4)
+            .expect("test root should be available")
+            .to_path_buf();
+        let (_required, ready_message) =
+            steam_status_with_discovery(Some(lwe_library::SteamLibrary {
+                root: populated_root,
+                libraries: Vec::new(),
+            }));
+
+        assert!(ready_message.contains("local Workshop content are available"));
+        assert!(ready_message.contains("does not imply local synchronization"));
     }
 
     #[test]

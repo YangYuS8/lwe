@@ -1,6 +1,6 @@
 # v1 version roadmap
 
-This page captures the maintained development direction from the current v0.8.5 development line toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
+This page captures the maintained development direction from the current v0.9.0 development line toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
 
 ## v1 target
 

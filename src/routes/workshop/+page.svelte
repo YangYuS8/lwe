@@ -5,7 +5,11 @@ import PageHeader from '$lib/layout/PageHeader.svelte';
 import { copy } from '$lib/i18n';
 import { Button } from '$lib/ui/button';
 import * as Select from '$lib/ui/select';
-  import { isLatestWorkshopOnlineSearchResponse } from './page-state';
+  import {
+    isLatestWorkshopOnlineSearchResponse,
+    isMissingSteamApiKeyError,
+    onlineRuntimeStatusKey
+  } from './page-state';
   import {
     loadSettingsPage,
     openWorkshopInSteam,
@@ -21,30 +25,41 @@ import * as Select from '$lib/ui/select';
   const readError = (error: unknown) =>
     error instanceof Error ? error.message : $copy.workshop.requestError;
 
+  const onlineRuntimeLabel = (itemType: 'video' | 'scene' | 'web' | 'application') => {
+    return $copy.workshop.runtimeLabels[onlineRuntimeStatusKey(itemType)];
+  };
+
+  const onlineRuntimeDescription = (itemType: 'video' | 'scene' | 'web' | 'application') =>
+    $copy.workshop.runtimeDescriptions[itemType];
+
   let pageError: string | null = null;
   let onlineSearchTimer: ReturnType<typeof setTimeout> | null = null;
   let onlineSearchRequestToken = 0;
   let onlineSearchLoading = false;
   let onlineSearchError: string | null = null;
-  let onlineSearchQuery = '';
-  let onlineSearchAgeRatings: ('g' | 'pg_13' | 'r_18')[] = ['g', 'pg_13'];
-  let onlineSearchItemTypes: ('video' | 'scene' | 'web' | 'application')[] = [
+  const initialOnlineSearchCache = $workshopOnlineCache;
+
+  let onlineSearchQuery = initialOnlineSearchCache.query;
+  let onlineSearchAgeRatings: ('g' | 'pg_13' | 'r_18')[] = initialOnlineSearchCache.ageRatings;
+  let onlineSearchItemTypes: ('video' | 'scene' | 'web' | 'application')[] = initialOnlineSearchCache.itemTypes.length
+    ? initialOnlineSearchCache.itemTypes
+    : [
     'video',
     'scene',
     'web',
     'application'
   ];
-let onlineSearchResult: WorkshopOnlineSearchResult | null = null;
-let onlineSearchPage = 1;
-let onlineSearchPageSize = 24;
-let onlineSearchPageSizeValue = '24';
+let onlineSearchResult: WorkshopOnlineSearchResult | null = initialOnlineSearchCache.result;
+let onlineSearchPage = initialOnlineSearchCache.result?.page ?? 1;
+let onlineSearchPageSize = initialOnlineSearchCache.pageSize;
+let onlineSearchPageSizeValue = String(initialOnlineSearchCache.pageSize);
 let initialOnlineSearchLoading = false;
 
   const pageSizeOptions = [12, 24, 48, 96] as const;
 
   let filtersExpanded = false;
 
-  let jumpToPageValue = '1';
+  let jumpToPageValue = String(onlineSearchPage);
 
 const pageCount = (result: WorkshopOnlineSearchResult | null) => {
     if (!result?.totalApprox || result.pageSize <= 0) {
@@ -462,10 +477,18 @@ const runOnlineSearch = async (options?: { page?: number }) => {
         {/each}
       </div>
     {:else if onlineSearchError}
-      <p class="lwe-warning-banner" role="alert" aria-live="assertive">{onlineSearchError}</p>
+      <div class="grid gap-2" role="alert" aria-live="assertive">
+        <p class="lwe-warning-banner">{onlineSearchError}</p>
+        {#if isMissingSteamApiKeyError(onlineSearchError)}
+          <a class="lwe-info-banner text-sm font-medium" href="/settings">
+            {$copy.workshop.missingApiKeySettingsHint}
+          </a>
+        {/if}
+      </div>
     {:else if onlineSearchResult}
       <div class="grid gap-2">
         <p class="text-sm font-medium text-foreground">{$copy.workshop.onlineResults}</p>
+        <p class="text-sm leading-6 text-muted-foreground">{$copy.workshop.onlineResultAcquisitionNote}</p>
         {#if onlineSearchResult.items.length}
           <div class="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
             {#each onlineSearchResult.items as item}
@@ -477,6 +500,19 @@ const runOnlineSearch = async (options?: { page?: number }) => {
                   loading="lazy"
                 />
                 <p class="line-clamp-2 text-sm font-semibold text-foreground">{item.title}</p>
+                <div class="grid gap-1.5 rounded-[0.75rem] border border-border/70 bg-muted/50 p-2">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="rounded-full border border-border/80 bg-background px-2 py-0.5 text-xs font-medium text-foreground">
+                      {$copy.labels.itemTypes[item.itemType]}
+                    </span>
+                    <span class="rounded-full border border-border/80 bg-background px-2 py-0.5 text-xs font-medium text-foreground">
+                      {onlineRuntimeLabel(item.itemType)}
+                    </span>
+                  </div>
+                  <p class="text-xs leading-5 text-muted-foreground">
+                    {onlineRuntimeDescription(item.itemType)}
+                  </p>
+                </div>
                 <Button variant="outline" onclick={() => openOnlineItemInSteam(item.id)}>
                   {$copy.components.workshopDetail.openInSteam}
                 </Button>
