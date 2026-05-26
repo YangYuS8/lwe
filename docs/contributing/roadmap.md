@@ -1,6 +1,6 @@
 # v1 version roadmap
 
-This page captures the maintained development direction from the current v0.9.5 development line toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
+This page captures the maintained development direction from the current v0.9.6 development line toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
 
 ## v1 target
 
@@ -25,6 +25,7 @@ For v1, LWE targets:
 | v0.8.5 | Library workflow hardening | Daily Library workflows are safe and clear. |
 | v0.9.0 | Workshop clarity | Discovery and Steam sync expectations are honest. |
 | v0.9.5 | Diagnostics and release prep | Supportability and release posture are ready. |
+| v0.9.6 | Preview performance | Library and Workshop card grids use bounded thumbnail assets instead of raw preview media. |
 | v1.0.0-rc.1 | First release candidate | Scope is frozen and validated end-to-end. |
 | v1.0.0-rc.2 | Optional blocker-fix candidate | Only if rc.1 finds release blockers. |
 | v1.0.0 | Stable v1 | Honest, reliable video-first release. |
@@ -180,6 +181,57 @@ Must not claim:
 - diagnostics are perfect environment detection;
 - launch-on-login works on every desktop/session/package format;
 - package install success guarantees runtime support.
+
+## v0.9.6: preview performance and thumbnail cache
+
+Theme: make Library and Workshop browsing smooth when many preview assets are present.
+
+Problem statement:
+
+- Current card grids can receive Workshop-bundled `preview.gif` and large `preview.jpg` files directly.
+- Tauri converts local paths into asset URLs, but the frontend still asks WebView to decode and render the original media.
+- Animated GIF previews are especially expensive when many cards are visible because each file can contain many frames.
+- Wallpaper Engine's public creator guidance treats preview assets as small, bounded UI media. LWE should follow the same product principle without claiming undocumented Wallpaper Engine client internals.
+
+Deliverables:
+
+- Introduce an LWE-owned thumbnail cache for card-grid cover art.
+- Use static, bounded-size thumbnails for Library and local Workshop card grids.
+- Convert animated GIF previews to static first-frame thumbnails for card grids.
+- Downscale oversized bundled previews before exposing them to card grids.
+- Keep original preview media available only for detail views or explicit future preview actions, not for default grid rendering.
+- Move thumbnail cache naming and storage away from retired `wayvid` terminology into the LWE cache namespace.
+- Update Tauri asset protocol scope so the frontend can read only the required Steam Workshop and LWE thumbnail cache paths.
+- Generate thumbnails outside the hot rendering path with bounded concurrency and clear placeholder or stale-thumbnail behavior while cold-cache work is pending.
+- Avoid full-list reprocessing on every item selection; reuse the current Library/Workshop projection where possible.
+- Add lightweight frontend safeguards such as `decoding="async"` and stable image dimensions. Treat virtualization or hover-play previews as follow-up work unless static thumbnails are insufficient.
+
+Implementation notes:
+
+- Prefer reusing `crates/lwe-library` thumbnail code, but route it through the active Library/Workshop service and assembly flow instead of calling it from Svelte.
+- Cache keys should account for the source path and enough file identity, such as modified time or size, so changed previews regenerate.
+- Thumbnail failures should degrade to the existing placeholder rather than failing the whole Library or Workshop page.
+- Generated thumbnails should be small enough for card grids; target dimensions around 256-320 px square are acceptable for the current UI.
+
+Acceptance criteria:
+
+- Library card grids do not render raw local `preview.gif` files.
+- Library card grids do not render oversized local preview images when a generated thumbnail is available.
+- GIF-heavy local Workshop content remains responsive when showing the largest supported page size.
+- Warm-cache navigation back to Library does not regenerate unchanged thumbnails.
+- Cold-cache thumbnail generation does not block the first usable page render.
+- Detail panels still show a cover or placeholder consistently.
+- Unit tests cover thumbnail source selection, GIF first-frame behavior, cache-path naming, stale-cache regeneration, and placeholder fallback.
+- Frontend tests cover rendering thumbnail cover paths without regressing missing-cover placeholders.
+- Manual verification records a GIF-heavy Library before/after comparison on a real desktop session.
+
+Must not claim:
+
+- Wallpaper Engine's private client implementation details unless backed by official documentation;
+- animated previews are fully supported in card grids;
+- performance is guaranteed on every GPU, disk, or desktop environment;
+- scene or web wallpaper runtime support;
+- LWE-managed Workshop downloading independent of Steam.
 
 ## v1.0.0-rc.1: first release candidate
 
