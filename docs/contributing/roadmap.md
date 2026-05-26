@@ -1,6 +1,6 @@
 # v1 version roadmap
 
-This page captures the maintained development direction from the current v0.9.6 development line toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
+This page captures the maintained development direction from the released v0.9.6 baseline toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
 
 ## v1 target
 
@@ -25,7 +25,7 @@ For v1, LWE targets:
 | v0.8.5 | Library workflow hardening | Daily Library workflows are safe and clear. |
 | v0.9.0 | Workshop clarity | Discovery and Steam sync expectations are honest. |
 | v0.9.5 | Diagnostics and release prep | Supportability and release posture are ready. |
-| v0.9.6 | Preview performance | Library and Workshop card grids use bounded thumbnail assets instead of raw preview media. |
+| v0.9.6 | Preview performance | Released: Library and Workshop card grids use bounded thumbnail assets instead of raw preview media. |
 | v1.0.0-rc.1 | First release candidate | Scope is frozen and validated end-to-end. |
 | v1.0.0-rc.2 | Optional blocker-fix candidate | Only if rc.1 finds release blockers. |
 | v1.0.0 | Stable v1 | Honest, reliable video-first release. |
