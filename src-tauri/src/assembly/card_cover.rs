@@ -67,7 +67,7 @@ mod tests {
         let img = DynamicImage::new_rgb8(800, 600);
         img.save(&gif_path).unwrap();
 
-        let generator = ThumbnailGenerator::new();
+        let generator = ThumbnailGenerator::for_card_grid();
         let cache_path = generator.generate_cached_path(&gif_path).unwrap();
         let entry = entry_with_cover(gif_path);
 

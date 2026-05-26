@@ -7,12 +7,10 @@
 //! - GIF animation preview (first frame)
 //! - Video frame extraction with ffmpeg
 
-use std::collections::HashSet;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, Mutex, OnceLock, mpsc as std_mpsc};
-use std::thread;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use image::{DynamicImage, GenericImageView, ImageFormat};
@@ -26,8 +24,6 @@ pub const THUMBNAIL_WIDTH: u32 = 320;
 pub const THUMBNAIL_HEIGHT: u32 = 180;
 /// Maximum original preview dimension that may be passed directly to card grids.
 pub const MAX_DIRECT_CARD_PREVIEW_DIMENSION: u32 = 320;
-/// Number of background workers used for cold card-grid thumbnail generation.
-pub const CARD_THUMBNAIL_WORKER_COUNT: usize = 2;
 /// WebP quality (0-100, higher = better)
 pub const WEBP_QUALITY: u8 = 80;
 
@@ -202,9 +198,8 @@ impl ThumbnailGenerator {
     /// Select a card-grid-safe cover path for bundled Workshop preview media.
     ///
     /// Static small images can be passed through directly. GIFs and oversized images use
-    /// cached static thumbnails. On a cold cache this schedules bounded background work and
-    /// returns `None`, allowing the UI to render its existing placeholder instead of decoding
-    /// expensive preview media in the hot render path.
+    /// cached static thumbnails. On a cold cache this generates the card thumbnail immediately
+    /// so items with known preview media do not regress to indefinite placeholders.
     pub fn card_grid_cover_path(&self, source_path: &Path) -> Option<PathBuf> {
         if !source_path.exists() {
             return None;
@@ -218,8 +213,13 @@ impl ThumbnailGenerator {
             return Some(source_path.to_path_buf());
         }
 
-        request_card_thumbnail_generation(source_path.to_path_buf());
-        None
+        self.generate_cached_path(source_path).ok().or_else(|| {
+            if is_static_image(source_path) {
+                Some(source_path.to_path_buf())
+            } else {
+                None
+            }
+        })
     }
 
     /// Generate thumbnail for a wallpaper file
@@ -589,10 +589,7 @@ pub fn can_render_directly_in_card_grid(path: &Path) -> bool {
         return false;
     }
 
-    if !matches!(
-        extension.as_str(),
-        "png" | "jpg" | "jpeg" | "webp" | "bmp" | "tiff" | "tif"
-    ) {
+    if !is_static_image_extension(&extension) {
         return false;
     }
 
@@ -605,72 +602,18 @@ pub fn can_render_directly_in_card_grid(path: &Path) -> bool {
     }
 }
 
-fn request_card_thumbnail_generation(source_path: PathBuf) {
-    let queue = card_thumbnail_queue();
-    let Ok(mut queued_paths) = queue.queued_paths.lock() else {
-        return;
-    };
-
-    if !queued_paths.insert(source_path.clone()) {
-        return;
-    }
-    drop(queued_paths);
-
-    if queue.sender.send(source_path).is_err() {
-        warn!("Failed to queue card thumbnail generation");
-    }
+fn is_static_image(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| is_static_image_extension(&extension.to_ascii_lowercase()))
+        .unwrap_or(false)
 }
 
-struct CardThumbnailQueue {
-    sender: std_mpsc::Sender<PathBuf>,
-    queued_paths: Arc<Mutex<HashSet<PathBuf>>>,
-}
-
-fn card_thumbnail_queue() -> &'static CardThumbnailQueue {
-    static QUEUE: OnceLock<CardThumbnailQueue> = OnceLock::new();
-    QUEUE.get_or_init(|| {
-        let (sender, receiver) = std_mpsc::channel::<PathBuf>();
-        let receiver = Arc::new(Mutex::new(receiver));
-        let queued_paths = Arc::new(Mutex::new(HashSet::new()));
-
-        for _ in 0..CARD_THUMBNAIL_WORKER_COUNT {
-            let receiver = receiver.clone();
-            let queued_paths = queued_paths.clone();
-
-            thread::spawn(move || {
-                let generator = ThumbnailGenerator::for_card_grid();
-                loop {
-                    let source_path = {
-                        let Ok(receiver) = receiver.lock() else {
-                            break;
-                        };
-                        receiver.recv()
-                    };
-
-                    let Ok(source_path) = source_path else {
-                        break;
-                    };
-
-                    if let Err(error) = generator.generate_cached_path(&source_path) {
-                        debug!(
-                            "Failed to generate card thumbnail for {}: {}",
-                            source_path.display(),
-                            error
-                        );
-                    }
-
-                    if let Ok(mut queued_paths) = queued_paths.lock() {
-                        queued_paths.remove(&source_path);
-                    }
-                }
-            });
-        }
-
-        CardThumbnailQueue {
-            sender,
-            queued_paths,
-        }
-    })
+fn is_static_image_extension(extension: &str) -> bool {
+    matches!(
+        extension,
+        "png" | "jpg" | "jpeg" | "webp" | "bmp" | "tiff" | "tif"
+    )
 }
 
 /// Hash a path for cache filename
@@ -891,9 +834,7 @@ mod tests {
             cache_dir,
         );
 
-        assert_eq!(generator.card_grid_cover_path(&gif_path), None);
-
-        let cache_path = generator.generate_cached_path(&gif_path).unwrap();
+        let cache_path = generator.cache_path(&gif_path);
         let card_path = generator.card_grid_cover_path(&gif_path).unwrap();
 
         assert_eq!(card_path, cache_path);
@@ -919,9 +860,7 @@ mod tests {
             cache_dir,
         );
 
-        assert_eq!(generator.card_grid_cover_path(&image_path), None);
-
-        let cache_path = generator.generate_cached_path(&image_path).unwrap();
+        let cache_path = generator.cache_path(&image_path);
         assert_eq!(
             generator.card_grid_cover_path(&image_path),
             Some(cache_path)

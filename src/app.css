@@ -54,6 +54,7 @@
 
   html {
     color-scheme: light;
+    @apply h-full overflow-hidden;
   }
 
   html.dark {
@@ -61,13 +62,17 @@
   }
 
   body {
-    @apply m-0 bg-background font-sans text-foreground;
+    @apply m-0 h-full overflow-hidden bg-background font-sans text-foreground;
+  }
+
+  body > div {
+    @apply h-full overflow-hidden;
   }
 }
 
 @layer components {
   .lwe-shell-bg {
-    @apply min-h-screen text-foreground;
+    @apply h-screen overflow-hidden text-foreground;
     background-image: radial-gradient(circle at top, hsl(var(--primary) / 0.18), transparent 34%),
       linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--muted)) 100%);
   }
@@ -78,11 +83,13 @@
   }
 
   .lwe-shell-grid {
-    @apply grid min-h-screen gap-4 p-4 pt-[4.75rem] lg:grid-cols-[minmax(248px,292px)_minmax(0,1fr)] lg:gap-6 lg:p-5 lg:pt-[5rem];
+    @apply grid h-full gap-4 overflow-hidden p-4 pt-[4.75rem] lg:grid-cols-[minmax(248px,292px)_minmax(0,1fr)] lg:gap-6 lg:p-5 lg:pt-[5rem];
   }
 
   .lwe-titlebar {
-    @apply fixed left-4 right-4 top-4 z-40 flex h-11 select-none items-center justify-between rounded-3xl border border-border/70 bg-card/90 px-4 text-card-foreground shadow-[0_18px_44px_rgba(15,23,42,0.10)] backdrop-blur-xl lg:left-5 lg:right-5 lg:top-5;
+    @apply fixed left-4 right-4 top-4 z-40 flex h-11 select-none items-center justify-between rounded-3xl border border-border/70 bg-card px-4 text-card-foreground shadow-[0_18px_44px_rgba(15,23,42,0.10)] lg:left-5 lg:right-5 lg:top-5;
+    transform: translateZ(0);
+    will-change: transform;
   }
 
   .lwe-titlebar-button {
@@ -94,12 +101,14 @@
   }
 
   .lwe-shell-sidebar {
-    @apply grid content-start gap-5 rounded-3xl border border-border/70 bg-card/90 p-5 text-card-foreground shadow-[0_24px_56px_rgba(15,23,42,0.24)] lg:sticky lg:top-[5rem] lg:max-h-[calc(100vh-6.25rem)] lg:self-start lg:overflow-y-auto;
+    @apply grid content-start gap-5 overflow-y-auto rounded-3xl border border-border/70 bg-card/95 p-5 text-card-foreground shadow-[0_24px_56px_rgba(15,23,42,0.18)] lg:h-full lg:self-start;
+    scrollbar-gutter: stable;
+    transform: translateZ(0);
   }
 
   .lwe-shell-main {
-    @apply grid min-w-0 content-start rounded-[2rem] border border-border/70 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45),0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:p-6;
-    background-color: hsl(var(--card) / 0.72);
+    @apply grid min-h-0 min-w-0 content-start overflow-y-auto rounded-[2rem] border border-border/70 bg-card/90 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45),0_18px_44px_rgba(15,23,42,0.06)] sm:p-6;
+    scrollbar-gutter: stable;
   }
 
   .dark .lwe-shell-main {
@@ -112,6 +121,8 @@
 
   .lwe-panel-compact {
     @apply grid gap-4 overflow-hidden rounded-3xl border border-border/70 bg-card/95 p-3.5 shadow-[0_18px_44px_rgba(15,23,42,0.08)];
+    content-visibility: auto;
+    contain-intrinsic-size: 360px;
   }
 
   .lwe-subpanel {

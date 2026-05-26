@@ -61,4 +61,15 @@ describe('AppShell', () => {
     expect(body).toContain('lwe-shell-grid');
     expect(body).toContain('aria-label="Primary navigation"');
   });
+
+  it('keeps the titlebar outside the scrollable main content', () => {
+    const { body } = render(AppShell, {
+      props: {
+        currentPath: '/library'
+      }
+    });
+
+    expect(body.indexOf('lwe-titlebar')).toBeLessThan(body.indexOf('lwe-shell-grid'));
+    expect(body.indexOf('lwe-shell-sidebar')).toBeLessThan(body.indexOf('lwe-shell-main'));
+  });
 });

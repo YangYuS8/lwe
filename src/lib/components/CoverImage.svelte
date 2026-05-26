@@ -25,8 +25,8 @@
     class={`block w-full rounded-[1.35rem] border border-border/80 bg-muted object-cover shadow-[inset_0_1px_0_rgba(255,255,255,0.45),0_16px_40px_rgba(15,23,42,0.08)] ${square ? 'aspect-square' : 'aspect-[16/9]'}`}
     src={resolvedCoverSrc}
     alt={label}
-    width="1600"
-    height="900"
+    width={square ? 320 : 1600}
+    height={square ? 320 : 900}
     loading="lazy"
     decoding="async"
     on:error={() => (loadFailed = true)}

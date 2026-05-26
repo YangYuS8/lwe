@@ -202,7 +202,7 @@ Deliverables:
 - Keep original preview media available only for detail views or explicit future preview actions, not for default grid rendering.
 - Move thumbnail cache naming and storage away from retired `wayvid` terminology into the LWE cache namespace.
 - Update Tauri asset protocol scope so the frontend can read only the required Steam Workshop and LWE thumbnail cache paths.
-- Generate thumbnails outside the hot rendering path with bounded concurrency and clear placeholder or stale-thumbnail behavior while cold-cache work is pending.
+- Generate thumbnails before exposing card data where practical; when cold-cache work is unavoidable, preserve a known usable visual fallback and avoid indefinite placeholders for items that have preview media.
 - Avoid full-list reprocessing on every item selection; reuse the current Library/Workshop projection where possible.
 - Add lightweight frontend safeguards such as `decoding="async"` and stable image dimensions. Treat virtualization or hover-play previews as follow-up work unless static thumbnails are insufficient.
 
@@ -219,7 +219,7 @@ Acceptance criteria:
 - Library card grids do not render oversized local preview images when a generated thumbnail is available.
 - GIF-heavy local Workshop content remains responsive when showing the largest supported page size.
 - Warm-cache navigation back to Library does not regenerate unchanged thumbnails.
-- Cold-cache thumbnail generation does not block the first usable page render.
+- Cold-cache thumbnail generation does not leave items with known preview media as permanent placeholders.
 - Detail panels still show a cover or placeholder consistently.
 - Unit tests cover thumbnail source selection, GIF first-frame behavior, cache-path naming, stale-cache regeneration, and placeholder fallback.
 - Frontend tests cover rendering thumbnail cover paths without regressing missing-cover placeholders.
