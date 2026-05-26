@@ -2,27 +2,32 @@
 //!
 //! Features:
 //! - WebP output format (smaller, better quality)
-//! - Persistent cache directory (~/.cache/wayvid/thumbnails/)
+//! - Persistent cache directory (~/.cache/lwe/card-thumbnails/)
 //! - Background generation with async API
 //! - GIF animation preview (first frame)
 //! - Video frame extraction with ffmpeg
 
+use std::collections::HashSet;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock, mpsc as std_mpsc};
+use std::thread;
 
 use anyhow::{Context, Result};
 use image::{DynamicImage, GenericImageView, ImageFormat};
 use parking_lot::RwLock;
 use sha2::{Digest, Sha256};
-use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 /// Default thumbnail width
 pub const THUMBNAIL_WIDTH: u32 = 320;
 /// Default thumbnail height
 pub const THUMBNAIL_HEIGHT: u32 = 180;
+/// Maximum original preview dimension that may be passed directly to card grids.
+pub const MAX_DIRECT_CARD_PREVIEW_DIMENSION: u32 = 320;
+/// Number of background workers used for cold card-grid thumbnail generation.
+pub const CARD_THUMBNAIL_WORKER_COUNT: usize = 2;
 /// WebP quality (0-100, higher = better)
 pub const WEBP_QUALITY: u8 = 80;
 
@@ -118,17 +123,40 @@ impl ThumbnailGenerator {
 
     /// Get default cache directory
     pub fn default_cache_dir() -> PathBuf {
-        dirs::cache_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("wayvid")
-            .join("thumbnails")
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| dirs::cache_dir().unwrap_or_else(|| PathBuf::from(".")))
+            .join(".cache")
+            .join("lwe")
+            .join("card-thumbnails")
+    }
+
+    /// Create a card-grid thumbnail selector without probing video thumbnail support.
+    pub fn for_card_grid() -> Self {
+        let cache_dir = Self::default_cache_dir();
+        if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+            warn!("Failed to create thumbnail cache directory: {}", e);
+        }
+
+        Self {
+            width: THUMBNAIL_WIDTH,
+            height: THUMBNAIL_HEIGHT,
+            format: ThumbnailFormat::WebP,
+            cache_dir,
+            ffmpeg_available: false,
+        }
     }
 
     /// Get cache path for a source file
     pub fn cache_path(&self, source_path: &Path) -> PathBuf {
-        let hash = hash_path(source_path);
+        let hash = hash_source_identity(source_path);
         self.cache_dir
             .join(format!("{}.{}", hash, self.format.extension()))
+    }
+
+    /// Get the cache directory used by this generator.
+    pub fn cache_dir(&self) -> &Path {
+        &self.cache_dir
     }
 
     /// Check if thumbnail exists in cache
@@ -156,6 +184,42 @@ impl ThumbnailGenerator {
             format: self.format.extension().to_string(),
             cached: true,
         })
+    }
+
+    /// Return a fresh cached thumbnail path for a source file when one exists.
+    pub fn cached_path(&self, source_path: &Path) -> Option<PathBuf> {
+        let cache_path = self.cache_path(source_path);
+        cache_path.exists().then_some(cache_path)
+    }
+
+    /// Generate a thumbnail and return the cache path written for it.
+    pub fn generate_cached_path(&self, source_path: &Path) -> Result<PathBuf> {
+        let cache_path = self.cache_path(source_path);
+        self.generate(source_path)?;
+        Ok(cache_path)
+    }
+
+    /// Select a card-grid-safe cover path for bundled Workshop preview media.
+    ///
+    /// Static small images can be passed through directly. GIFs and oversized images use
+    /// cached static thumbnails. On a cold cache this schedules bounded background work and
+    /// returns `None`, allowing the UI to render its existing placeholder instead of decoding
+    /// expensive preview media in the hot render path.
+    pub fn card_grid_cover_path(&self, source_path: &Path) -> Option<PathBuf> {
+        if !source_path.exists() {
+            return None;
+        }
+
+        if let Some(cache_path) = self.cached_path(source_path) {
+            return Some(cache_path);
+        }
+
+        if can_render_directly_in_card_grid(source_path) {
+            return Some(source_path.to_path_buf());
+        }
+
+        request_card_thumbnail_generation(source_path.to_path_buf());
+        None
     }
 
     /// Generate thumbnail for a wallpaper file
@@ -260,7 +324,7 @@ impl ThumbnailGenerator {
 
         // Create temp file for output
         let temp_path = std::env::temp_dir().join(format!(
-            "wayvid_thumb_{}_{}.png",
+            "lwe_thumb_{}_{}.png",
             std::process::id(),
             rand_suffix()
         ));
@@ -420,16 +484,16 @@ pub struct ThumbnailResponse {
 /// Background thumbnail generation service
 pub struct ThumbnailService {
     generator: Arc<ThumbnailGenerator>,
-    request_tx: mpsc::Sender<ThumbnailRequest>,
-    response_rx: mpsc::Receiver<ThumbnailResponse>,
+    request_tx: tokio::sync::mpsc::Sender<ThumbnailRequest>,
+    response_rx: tokio::sync::mpsc::Receiver<ThumbnailResponse>,
     pending_count: Arc<RwLock<usize>>,
 }
 
 impl ThumbnailService {
     /// Create a new thumbnail service with specified worker count
     pub fn new(worker_count: usize) -> Self {
-        let (request_tx, request_rx) = mpsc::channel::<ThumbnailRequest>(1000);
-        let (response_tx, response_rx) = mpsc::channel::<ThumbnailResponse>(1000);
+        let (request_tx, request_rx) = tokio::sync::mpsc::channel::<ThumbnailRequest>(1000);
+        let (response_tx, response_rx) = tokio::sync::mpsc::channel::<ThumbnailResponse>(1000);
 
         let generator = Arc::new(ThumbnailGenerator::new());
         let pending_count = Arc::new(RwLock::new(0));
@@ -513,12 +577,126 @@ fn encode_image(img: &DynamicImage, format: ThumbnailFormat) -> Result<Vec<u8>> 
     Ok(buffer)
 }
 
+/// Returns true when the original preview is cheap enough for direct card-grid rendering.
+pub fn can_render_directly_in_card_grid(path: &Path) -> bool {
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    if extension == "gif" {
+        return false;
+    }
+
+    if !matches!(
+        extension.as_str(),
+        "png" | "jpg" | "jpeg" | "webp" | "bmp" | "tiff" | "tif"
+    ) {
+        return false;
+    }
+
+    match image::image_dimensions(path) {
+        Ok((width, height)) => {
+            width <= MAX_DIRECT_CARD_PREVIEW_DIMENSION
+                && height <= MAX_DIRECT_CARD_PREVIEW_DIMENSION
+        }
+        Err(_) => false,
+    }
+}
+
+fn request_card_thumbnail_generation(source_path: PathBuf) {
+    let queue = card_thumbnail_queue();
+    let Ok(mut queued_paths) = queue.queued_paths.lock() else {
+        return;
+    };
+
+    if !queued_paths.insert(source_path.clone()) {
+        return;
+    }
+    drop(queued_paths);
+
+    if queue.sender.send(source_path).is_err() {
+        warn!("Failed to queue card thumbnail generation");
+    }
+}
+
+struct CardThumbnailQueue {
+    sender: std_mpsc::Sender<PathBuf>,
+    queued_paths: Arc<Mutex<HashSet<PathBuf>>>,
+}
+
+fn card_thumbnail_queue() -> &'static CardThumbnailQueue {
+    static QUEUE: OnceLock<CardThumbnailQueue> = OnceLock::new();
+    QUEUE.get_or_init(|| {
+        let (sender, receiver) = std_mpsc::channel::<PathBuf>();
+        let receiver = Arc::new(Mutex::new(receiver));
+        let queued_paths = Arc::new(Mutex::new(HashSet::new()));
+
+        for _ in 0..CARD_THUMBNAIL_WORKER_COUNT {
+            let receiver = receiver.clone();
+            let queued_paths = queued_paths.clone();
+
+            thread::spawn(move || {
+                let generator = ThumbnailGenerator::for_card_grid();
+                loop {
+                    let source_path = {
+                        let Ok(receiver) = receiver.lock() else {
+                            break;
+                        };
+                        receiver.recv()
+                    };
+
+                    let Ok(source_path) = source_path else {
+                        break;
+                    };
+
+                    if let Err(error) = generator.generate_cached_path(&source_path) {
+                        debug!(
+                            "Failed to generate card thumbnail for {}: {}",
+                            source_path.display(),
+                            error
+                        );
+                    }
+
+                    if let Ok(mut queued_paths) = queued_paths.lock() {
+                        queued_paths.remove(&source_path);
+                    }
+                }
+            });
+        }
+
+        CardThumbnailQueue {
+            sender,
+            queued_paths,
+        }
+    })
+}
+
 /// Hash a path for cache filename
+#[cfg(test)]
 fn hash_path(path: &Path) -> String {
     let mut hasher = Sha256::new();
     hasher.update(path.to_string_lossy().as_bytes());
     let result = hasher.finalize();
     hex::encode(&result[..16]) // First 16 bytes = 32 hex chars
+}
+
+fn hash_source_identity(path: &Path) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(path.to_string_lossy().as_bytes());
+
+    if let Ok(metadata) = std::fs::metadata(path) {
+        hasher.update(metadata.len().to_le_bytes());
+        if let Ok(modified) = metadata.modified() {
+            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
+                hasher.update(duration.as_nanos().to_le_bytes());
+            }
+        }
+    }
+
+    let result = hasher.finalize();
+    hex::encode(&result[..16])
 }
 
 /// Generate random suffix for temp files
@@ -637,6 +815,7 @@ mod tests {
         assert_eq!(generator.width, THUMBNAIL_WIDTH);
         assert_eq!(generator.height, THUMBNAIL_HEIGHT);
         assert_eq!(generator.format, ThumbnailFormat::WebP);
+        assert!(generator.cache_dir().ends_with("lwe/card-thumbnails"));
     }
 
     #[test]
@@ -694,6 +873,105 @@ mod tests {
         // Second generation should be cached
         let result2 = generator.generate(&image_path).unwrap();
         assert!(result2.cached);
+    }
+
+    #[test]
+    fn gif_card_cover_uses_static_first_frame_thumbnail() {
+        let temp_dir = TempDir::new().unwrap();
+        let gif_path = temp_dir.path().join("preview.gif");
+        let cache_dir = temp_dir.path().join("cache");
+
+        let img = DynamicImage::new_rgb8(640, 360);
+        img.save(&gif_path).unwrap();
+
+        let generator = ThumbnailGenerator::with_options(
+            THUMBNAIL_WIDTH,
+            THUMBNAIL_HEIGHT,
+            ThumbnailFormat::Png,
+            cache_dir,
+        );
+
+        assert_eq!(generator.card_grid_cover_path(&gif_path), None);
+
+        let cache_path = generator.generate_cached_path(&gif_path).unwrap();
+        let card_path = generator.card_grid_cover_path(&gif_path).unwrap();
+
+        assert_eq!(card_path, cache_path);
+        assert_eq!(
+            card_path.extension().and_then(|ext| ext.to_str()),
+            Some("png")
+        );
+    }
+
+    #[test]
+    fn large_image_card_cover_uses_cached_thumbnail_when_available() {
+        let temp_dir = TempDir::new().unwrap();
+        let image_path = temp_dir.path().join("preview.jpg");
+        let cache_dir = temp_dir.path().join("cache");
+
+        let img = DynamicImage::new_rgb8(1600, 900);
+        img.save(&image_path).unwrap();
+
+        let generator = ThumbnailGenerator::with_options(
+            THUMBNAIL_WIDTH,
+            THUMBNAIL_HEIGHT,
+            ThumbnailFormat::Png,
+            cache_dir,
+        );
+
+        assert_eq!(generator.card_grid_cover_path(&image_path), None);
+
+        let cache_path = generator.generate_cached_path(&image_path).unwrap();
+        assert_eq!(
+            generator.card_grid_cover_path(&image_path),
+            Some(cache_path)
+        );
+    }
+
+    #[test]
+    fn small_static_card_cover_can_use_original_preview() {
+        let temp_dir = TempDir::new().unwrap();
+        let image_path = temp_dir.path().join("preview.jpg");
+        let cache_dir = temp_dir.path().join("cache");
+
+        let img = DynamicImage::new_rgb8(256, 144);
+        img.save(&image_path).unwrap();
+
+        let generator = ThumbnailGenerator::with_options(
+            THUMBNAIL_WIDTH,
+            THUMBNAIL_HEIGHT,
+            ThumbnailFormat::Png,
+            cache_dir,
+        );
+
+        assert_eq!(
+            generator.card_grid_cover_path(&image_path),
+            Some(image_path)
+        );
+    }
+
+    #[test]
+    fn cache_path_changes_when_source_identity_changes() {
+        let temp_dir = TempDir::new().unwrap();
+        let image_path = temp_dir.path().join("preview.png");
+        let cache_dir = temp_dir.path().join("cache");
+
+        let img = DynamicImage::new_rgb8(100, 100);
+        img.save(&image_path).unwrap();
+
+        let generator = ThumbnailGenerator::with_options(
+            THUMBNAIL_WIDTH,
+            THUMBNAIL_HEIGHT,
+            ThumbnailFormat::Png,
+            cache_dir,
+        );
+        let first_path = generator.cache_path(&image_path);
+
+        let img = DynamicImage::new_rgb8(101, 101);
+        img.save(&image_path).unwrap();
+        let second_path = generator.cache_path(&image_path);
+
+        assert_ne!(first_path, second_path);
     }
 
     #[test]

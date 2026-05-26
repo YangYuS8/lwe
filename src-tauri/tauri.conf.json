@@ -35,7 +35,11 @@
         "enable": true,
         "scope": {
           "allow": [
-            "$HOME/.steam/steam/steamapps/workshop/content/**/*"
+            "$HOME/.steam/steam/steamapps/workshop/content/**/*",
+            "$HOME/.local/share/Steam/steamapps/workshop/content/**/*",
+            "$HOME/.var/app/com.valvesoftware.Steam/data/Steam/steamapps/workshop/content/**/*",
+            "$HOME/snap/steam/common/.local/share/Steam/steamapps/workshop/content/**/*",
+            "$HOME/.cache/lwe/card-thumbnails/**/*"
           ]
         }
       }

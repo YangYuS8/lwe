@@ -1,6 +1,6 @@
+use crate::assembly::card_cover::card_cover_path;
 use crate::assembly::compatibility::compatibility_summary;
 use crate::models::{ItemType, WorkshopItemSummary, WorkshopPageSnapshot, WorkshopSyncStatus};
-use crate::policies::shared::cover_policy::{CoverArtSource, cover_art_source};
 use crate::results::workshop::{AssessedWorkshopCatalogEntry, WorkshopRefreshResult};
 use lwe_library::{WorkshopCatalogEntry, WorkshopProjectType, WorkshopSyncState};
 
@@ -10,18 +10,6 @@ fn item_type_from_project_type(project_type: WorkshopProjectType) -> ItemType {
         WorkshopProjectType::Scene => ItemType::Scene,
         WorkshopProjectType::Web => ItemType::Web,
         WorkshopProjectType::Other => ItemType::Application,
-    }
-}
-
-fn cover_path(entry: &WorkshopCatalogEntry) -> Option<String> {
-    let bundled_cover_path = entry
-        .cover_path
-        .as_ref()
-        .map(|path| path.to_string_lossy().into_owned());
-
-    match cover_art_source(bundled_cover_path) {
-        CoverArtSource::Bundled(path) => Some(path),
-        CoverArtSource::Placeholder => None,
     }
 }
 
@@ -40,7 +28,7 @@ fn workshop_summary_from_entry(
     let workshop_id = assessed_entry.entry.workshop_id.to_string();
     let title = assessed_entry.entry.title.clone();
     let item_type = item_type_from_project_type(assessed_entry.entry.project_type);
-    let cover_path = cover_path(&assessed_entry.entry);
+    let cover_path = card_cover_path(&assessed_entry.entry);
     let sync_status = sync_status(&assessed_entry.entry);
     let compatibility = compatibility_summary(&assessed_entry.compatibility);
 

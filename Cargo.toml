@@ -23,7 +23,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.9.5"
+version = "0.9.6"
 edition = "2024"
 rust-version = "1.85"
 authors = ["LWE contributors"]

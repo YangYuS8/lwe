@@ -146,6 +146,60 @@ describe('library page render', () => {
     expect(body).toContain('not runnable by the current video runtime');
   });
 
+  it('renders thumbnail cover paths on Library cards without regressing missing-cover placeholders', () => {
+    setLibrarySnapshot({
+      items: [
+        {
+          id: 'video-7',
+          workshopId: '7',
+          title: 'Cached Thumbnail Video',
+          itemType: 'video',
+          coverPath: 'asset://localhost/home/user/.cache/lwe/card-thumbnails/video-7.webp',
+          ageRating: 'g',
+          source: 'workshop',
+          compatibility: {
+            badge: 'fully_supported',
+            reasonCode: 'ready_for_library',
+            summaryCopy: 'Ready to use'
+          },
+          applySupported: true,
+          favorite: false,
+          assignedMonitorLabels: []
+        },
+        {
+          id: 'video-8',
+          workshopId: '8',
+          title: 'Cold Cache Video',
+          itemType: 'video',
+          coverPath: null,
+          ageRating: 'g',
+          source: 'workshop',
+          compatibility: {
+            badge: 'fully_supported',
+            reasonCode: 'ready_for_library',
+            summaryCopy: 'Ready to use'
+          },
+          applySupported: true,
+          favorite: false,
+          assignedMonitorLabels: []
+        }
+      ],
+      selectedItemId: null,
+      monitorsAvailable: true,
+      monitorDiscoveryIssue: null,
+      desktopAssignmentIssue: null,
+      desktopAssignmentsAvailable: true,
+      stale: false
+    });
+
+    const { body } = render(LibraryPage);
+
+    expect(body).toContain('Cached Thumbnail Video');
+    expect(body).toContain('asset://localhost/home/user/.cache/lwe/card-thumbnails/video-7.webp');
+    expect(body).toContain('Cold Cache Video');
+    expect(body).toContain('No Cover');
+  });
+
   it('renders route and detail placeholder copy in Simplified Chinese when zh-CN is active', () => {
     setPreferredLanguage('zh-CN');
 

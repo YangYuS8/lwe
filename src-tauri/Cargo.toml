@@ -16,3 +16,7 @@ lwe-library = { path = "../crates/lwe-library" }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["gif", "png"] }
+tempfile = "3.8"

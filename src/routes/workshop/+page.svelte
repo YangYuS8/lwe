@@ -573,6 +573,7 @@ const runOnlineSearch = async (options?: { page?: number }) => {
                   alt={item.title}
                   class="aspect-square w-full rounded-[0.9rem] border border-border/80 bg-muted object-cover"
                   loading="lazy"
+                  decoding="async"
                 />
                 <p class="line-clamp-2 text-sm font-semibold text-foreground">{item.title}</p>
                 <div class="grid gap-1.5 rounded-[0.75rem] border border-border/70 bg-muted/50 p-2">

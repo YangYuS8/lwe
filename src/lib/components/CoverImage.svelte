@@ -28,6 +28,7 @@
     width="1600"
     height="900"
     loading="lazy"
+    decoding="async"
     on:error={() => (loadFailed = true)}
   />
 {:else}
