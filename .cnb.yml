@@ -138,8 +138,10 @@ main:
             PRERELEASE_TAG: PRERELEASE_TAG
             SHORT_SHA: SHORT_SHA
         - name: build bundles
+          if: test -f .cnb-release-version
           script: cargo tauri build -b "deb,rpm,appimage"
         - name: collect artifacts
+          if: test -f .cnb-release-version
           script: |
             bash <<'BASH'
             set -euo pipefail
@@ -309,10 +311,12 @@ $:
             cp -v "${appimage_files[@]}" dist/
             BASH
         - name: generate release notes
+          if: test -f .cnb-release-version
           script: |
             release_version="$(cat .cnb-release-version)"
             scripts/generate-release-notes.sh "LWE v${release_version}" release-notes.md
         - name: create CNB stable release
+          if: test -f .cnb-release-version
           type: git:release
           options:
             tag: $CNB_BRANCH
@@ -320,12 +324,14 @@ $:
             descriptionFromFile: release-notes.md
             preRelease: false
         - name: upload CNB stable assets
+          if: test -f .cnb-release-version
           image: cnbcool/attachments:latest
           settings:
             tag: $CNB_BRANCH
             attachments:
               - dist/*
         - name: prepare ArchLinuxCN stable package metadata
+          if: test -f .cnb-release-version
           script: |
             release_version="$(cat .cnb-release-version)"
             mkdir -p dist/archlinuxcn/lwe
@@ -338,12 +344,14 @@ $:
             sed -i "s|^[[:space:]]*source = .*|\tsource = lwe_${release_version}_amd64.deb::https://cnb.cool/Nesoriel/lwe/-/releases/v${release_version}/download/lwe_${release_version}_amd64.deb|" dist/archlinuxcn/lwe/.SRCINFO
             tar -C dist/archlinuxcn -czf dist/archlinuxcn-lwe-metadata.tar.gz lwe
         - name: upload ArchLinuxCN stable metadata
+          if: test -f .cnb-release-version
           image: cnbcool/attachments:latest
           settings:
             tag: $CNB_BRANCH
             attachments:
               - dist/archlinuxcn-lwe-metadata.tar.gz
         - name: optionally push ArchLinuxCN stable metadata
+          if: test -f .cnb-release-version
           script: |
             if [ -z "${ARCHLINUXCN_REPO_PUSH_URL:-}" ] || [ -z "${ARCHLINUXCN_SSH_PRIVATE_KEY:-}" ]; then
               echo "ARCHLINUXCN_REPO_PUSH_URL or ARCHLINUXCN_SSH_PRIVATE_KEY is not configured; metadata was attached to the CNB stable release instead."
