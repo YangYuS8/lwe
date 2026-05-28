@@ -824,10 +824,12 @@ mod tests {
     struct EnvGuard {
         xdg_config_home: Option<OsString>,
         home: Option<OsString>,
+        _lock: std::sync::MutexGuard<'static, ()>,
     }
 
     impl EnvGuard {
         fn set_config_root(config_root: &Path) -> Self {
+            let lock = crate::test_env::env_lock();
             let xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
             let home = std::env::var_os("HOME");
 
@@ -839,6 +841,7 @@ mod tests {
             Self {
                 xdg_config_home,
                 home,
+                _lock: lock,
             }
         }
     }

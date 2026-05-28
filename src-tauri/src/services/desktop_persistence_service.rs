@@ -208,7 +208,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::ffi::OsString;
     use std::path::PathBuf;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
+    use std::sync::MutexGuard;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::results::desktop_persistence::{DesktopPersistenceLoad, DesktopPersistenceWrite};
@@ -258,12 +258,7 @@ mod tests {
     }
 
     fn env_lock() -> MutexGuard<'static, ()> {
-        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-        ENV_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("desktop persistence env lock was poisoned")
+        crate::test_env::env_lock()
     }
 
     impl Drop for EnvGuard {

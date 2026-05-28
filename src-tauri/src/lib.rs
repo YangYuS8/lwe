@@ -14,6 +14,8 @@ pub mod models;
 pub mod policies;
 pub mod results;
 pub mod services;
+#[cfg(test)]
+mod test_env;
 
 pub const APP_CODE_NAME: &str = "lwe";
 

@@ -1,5 +1,3 @@
-use std::sync::OnceLock;
-
 use lwe_library::{ThumbnailGenerator, WorkshopCatalogEntry};
 
 use crate::policies::shared::cover_policy::{CoverArtSource, cover_art_source};
@@ -17,8 +15,7 @@ pub fn detail_cover_path(entry: &WorkshopCatalogEntry) -> Option<String> {
 }
 
 pub fn card_cover_path(entry: &WorkshopCatalogEntry) -> Option<String> {
-    static GENERATOR: OnceLock<ThumbnailGenerator> = OnceLock::new();
-    let generator = GENERATOR.get_or_init(ThumbnailGenerator::for_card_grid);
+    let generator = ThumbnailGenerator::for_card_grid();
     entry
         .cover_path
         .as_ref()
@@ -62,7 +59,12 @@ mod tests {
 
     #[test]
     fn card_cover_uses_existing_thumbnail_instead_of_raw_gif() {
+        let _env = crate::test_env::env_lock();
         let temp_dir = TempDir::new().unwrap();
+        let previous_home = std::env::var_os("HOME");
+        unsafe {
+            std::env::set_var("HOME", temp_dir.path());
+        }
         let gif_path = temp_dir.path().join("preview.gif");
         let img = DynamicImage::new_rgb8(800, 600);
         img.save(&gif_path).unwrap();
@@ -77,5 +79,9 @@ mod tests {
         assert!(!cover.ends_with("preview.gif"));
 
         let _ = std::fs::remove_file(cache_path);
+        match previous_home {
+            Some(value) => unsafe { std::env::set_var("HOME", value) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
     }
 }
