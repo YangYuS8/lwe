@@ -1,0 +1,408 @@
+main:
+  push:
+    - name: quality-check
+      runner:
+        cpus: 4
+      docker:
+        image: rust:1-bookworm
+        volumes:
+          - pnpm-store:/root/.local/share/pnpm/store:rw
+          - cargo-registry:/usr/local/cargo/registry:rw
+          - cargo-git:/usr/local/cargo/git:rw
+          - cargo-target:/workspace/target:rw
+      stages:
+        - name: install system dependencies
+          script: |
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              build-essential \
+              ca-certificates \
+              curl \
+              git \
+              nodejs \
+              npm \
+              pkg-config \
+              libssl-dev \
+              libmpv-dev \
+              libgtk-3-dev \
+              libayatana-appindicator3-dev \
+              librsvg2-dev \
+              libsoup-3.0-dev \
+              libwebkit2gtk-4.1-dev \
+              patchelf
+            npm install -g n
+            n 24
+            hash -r
+            node --version
+            npm install -g corepack@latest
+            corepack enable
+            corepack prepare pnpm@11.1.3 --activate
+            pnpm --version
+            rustup component add rustfmt clippy
+        - name: install frontend dependencies
+          script: pnpm install --frozen-lockfile
+        - name: frontend checks
+          jobs:
+            type-check:
+              script: pnpm check
+            unit-tests:
+              script: pnpm test
+            frontend-build:
+              script: pnpm build
+            docs-build:
+              script: pnpm docs:build
+        - name: rust checks
+          jobs:
+            fmt:
+              script: cargo fmt --all -- --check
+            clippy:
+              script: cargo clippy --workspace --all-targets -- -D warnings
+            check:
+              script: cargo check --workspace
+            tests:
+              script: cargo test --workspace
+        - name: trigger prerelease after quality check
+          type: cnb:apply
+          options:
+            event: web_trigger_prerelease
+            sync: false
+
+    - name: deploy-docs-edgeone-pages
+      runner:
+        cpus: 2
+      docker:
+        image: node:24-bookworm
+        volumes:
+          - pnpm-store:/root/.local/share/pnpm/store:rw
+      imports:
+        - https://cnb.cool/Nesoriel/secret-prod/-/blob/main/cloud-providers/tencent-cloud.yml
+      ifModify:
+        - docs/**
+        - package.json
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - .cnb.yml
+      stages:
+        - name: install dependencies
+          script: |
+            corepack enable
+            corepack prepare pnpm@11.1.3 --activate
+            pnpm install --frozen-lockfile
+        - name: build documentation
+          script: pnpm docs:build
+        - name: deploy to EdgeOne Pages
+          script: |
+            if [ -z "${EDGEONE_PAGES_API_TOKEN:-}" ]; then
+              echo "EDGEONE_PAGES_API_TOKEN is not configured; skipping EdgeOne Pages deployment."
+              exit 0
+            fi
+
+            edgeone_project="${EDGEONE_PAGES_PROJECT:-lwe-docs}"
+            npx --yes edgeone@latest pages deploy docs/.vitepress/dist \
+              -n "${edgeone_project}" \
+              -t "${EDGEONE_PAGES_API_TOKEN}" \
+              -e production
+
+  web_trigger_prerelease:
+    - name: release-prerelease
+      runner:
+        cpus: 4
+      docker:
+        image: rust:1-bookworm
+        volumes:
+          - pnpm-store:/root/.local/share/pnpm/store:rw
+          - cargo-registry:/usr/local/cargo/registry:rw
+          - cargo-git:/usr/local/cargo/git:rw
+          - cargo-target:/workspace/target:rw
+      stages:
+        - name: install build dependencies
+          script: |
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              build-essential \
+              ca-certificates \
+              curl \
+              git \
+              nodejs \
+              npm \
+              pkg-config \
+              libssl-dev \
+              libmpv-dev \
+              libgtk-3-dev \
+              libayatana-appindicator3-dev \
+              librsvg2-dev \
+              libsoup-3.0-dev \
+              libwebkit2gtk-4.1-dev \
+              patchelf
+            npm install -g n
+            n 24
+            hash -r
+            node --version
+            npm install -g corepack@latest
+            corepack enable
+            corepack prepare pnpm@11.1.3 --activate
+            pnpm --version
+            if ! command -v cargo-tauri >/dev/null 2>&1 && ! command -v tauri >/dev/null 2>&1; then
+              cargo install tauri-cli --locked
+            fi
+        - name: install frontend dependencies
+          script: pnpm install --frozen-lockfile
+        - name: resolve prerelease version
+          script: |
+            base_version="$(sed -n 's/^version = "\([^"]\+\)"$/\1/p' Cargo.toml | head -n 1)"
+            short_sha="$(git rev-parse --short=7 HEAD)"
+            prerelease_version="${base_version}-beta.${CNB_BUILD_ID}+${short_sha}"
+            prerelease_tag="v${prerelease_version}"
+
+            printf '%s' "${prerelease_version}" > .cnb-prerelease-version
+            printf '%s' "${prerelease_tag}" > .cnb-prerelease-tag
+            printf '%s' "${short_sha}" > .cnb-short-sha
+            echo "##[set-output PRERELEASE_VERSION=${prerelease_version}]"
+            echo "##[set-output PRERELEASE_TAG=${prerelease_tag}]"
+            echo "##[set-output SHORT_SHA=${short_sha}]"
+          exports:
+            PRERELEASE_VERSION: PRERELEASE_VERSION
+            PRERELEASE_TAG: PRERELEASE_TAG
+            SHORT_SHA: SHORT_SHA
+        - name: build bundles
+          script: cargo tauri build -b "deb,rpm,appimage"
+        - name: collect artifacts
+          script: |
+            shopt -s nullglob
+            mkdir -p dist
+            deb_files=(target/release/bundle/deb/*.deb src-tauri/target/release/bundle/deb/*.deb)
+            rpm_files=(target/release/bundle/rpm/*.rpm src-tauri/target/release/bundle/rpm/*.rpm)
+            appimage_files=(target/release/bundle/appimage/*.AppImage src-tauri/target/release/bundle/appimage/*.AppImage)
+
+            if [ "${#deb_files[@]}" -eq 0 ] || [ "${#rpm_files[@]}" -eq 0 ] || [ "${#appimage_files[@]}" -eq 0 ]; then
+              echo "Expected bundle artifacts not found"
+              echo "deb: ${#deb_files[@]}, rpm: ${#rpm_files[@]}, appimage: ${#appimage_files[@]}"
+              exit 1
+            fi
+
+            cp -v "${deb_files[@]}" dist/
+            cp -v "${rpm_files[@]}" dist/
+            cp -v "${appimage_files[@]}" dist/
+        - name: generate release notes
+          script: |
+            prerelease_version="$(cat .cnb-prerelease-version)"
+            scripts/generate-release-notes.sh "LWE ${prerelease_version}" release-notes.md
+        - name: create CNB prerelease
+          type: git:release
+          options:
+            tag: $PRERELEASE_TAG
+            title: LWE $PRERELEASE_VERSION
+            descriptionFromFile: release-notes.md
+            preRelease: true
+        - name: upload CNB prerelease assets
+          image: cnbcool/attachments:latest
+          settings:
+            tag: $PRERELEASE_TAG
+            attachments:
+              - dist/*
+        - name: prepare ArchLinuxCN development package metadata
+          script: |
+            short_sha="$(cat .cnb-short-sha)"
+            base_version="$(sed -n 's/^version = "\([^"]\+\)"$/\1/p' Cargo.toml | head -n 1)"
+            archlinuxcn_pkgver="${base_version}.beta.${CNB_BUILD_ID}.${short_sha}"
+            mkdir -p dist/archlinuxcn/lwe-git
+            cp packaging/aur/lwe-git/PKGBUILD packaging/aur/lwe-git/.SRCINFO dist/archlinuxcn/lwe-git/
+            sed -i "s/^pkgver=.*/pkgver=${archlinuxcn_pkgver}/" dist/archlinuxcn/lwe-git/PKGBUILD
+            sed -i "s/^pkgrel=.*/pkgrel=1/" dist/archlinuxcn/lwe-git/PKGBUILD
+            sed -i "s|^url=.*|url=\"https://cnb.cool/Nesoriel/lwe\"|" dist/archlinuxcn/lwe-git/PKGBUILD
+            sed -i "s|^source=.*|source=(\"git+https://cnb.cool/Nesoriel/lwe.git\")|" dist/archlinuxcn/lwe-git/PKGBUILD
+            sed -i "s/^pkgver = .*/pkgver = ${archlinuxcn_pkgver}/" dist/archlinuxcn/lwe-git/.SRCINFO
+            sed -i "s/^pkgrel = .*/pkgrel = 1/" dist/archlinuxcn/lwe-git/.SRCINFO
+            sed -i "s|^[[:space:]]*url = .*|\turl = https://cnb.cool/Nesoriel/lwe|" dist/archlinuxcn/lwe-git/.SRCINFO
+            sed -i "s|^[[:space:]]*source = .*|\tsource = git+https://cnb.cool/Nesoriel/lwe.git|" dist/archlinuxcn/lwe-git/.SRCINFO
+            tar -C dist/archlinuxcn -czf dist/archlinuxcn-lwe-git-metadata.tar.gz lwe-git
+        - name: upload ArchLinuxCN development metadata
+          image: cnbcool/attachments:latest
+          settings:
+            tag: $PRERELEASE_TAG
+            attachments:
+              - dist/archlinuxcn-lwe-git-metadata.tar.gz
+        - name: optionally push ArchLinuxCN development metadata
+          script: |
+            if [ -z "${ARCHLINUXCN_REPO_PUSH_URL:-}" ] || [ -z "${ARCHLINUXCN_SSH_PRIVATE_KEY:-}" ]; then
+              echo "ARCHLINUXCN_REPO_PUSH_URL or ARCHLINUXCN_SSH_PRIVATE_KEY is not configured; metadata was attached to the CNB prerelease instead."
+              exit 0
+            fi
+
+            apt-get update
+            apt-get install -y --no-install-recommends openssh-client
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            printf '%s\n' "${ARCHLINUXCN_SSH_PRIVATE_KEY}" > ~/.ssh/archlinuxcn_key
+            chmod 600 ~/.ssh/archlinuxcn_key
+            ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+            git clone "${ARCHLINUXCN_REPO_PUSH_URL}" archlinuxcn-repo
+            rm -rf archlinuxcn-repo/archlinuxcn/lwe-git archlinuxcn-repo/lwe-git
+            if [ -d archlinuxcn-repo/archlinuxcn ]; then
+              mkdir -p archlinuxcn-repo/archlinuxcn/lwe-git
+              cp dist/archlinuxcn/lwe-git/PKGBUILD dist/archlinuxcn/lwe-git/.SRCINFO archlinuxcn-repo/archlinuxcn/lwe-git/
+            else
+              mkdir -p archlinuxcn-repo/lwe-git
+              cp dist/archlinuxcn/lwe-git/PKGBUILD dist/archlinuxcn/lwe-git/.SRCINFO archlinuxcn-repo/lwe-git/
+            fi
+            cd archlinuxcn-repo
+            git config user.name "cnb-bot"
+            git config user.email "cnb-bot@users.noreply.cnb.cool"
+            git add .
+            if git diff --cached --quiet; then
+              echo "No ArchLinuxCN metadata changes to publish"
+              exit 0
+            fi
+            git commit -m "lwe-git: update to $(cat ../.cnb-prerelease-version)"
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/archlinuxcn_key -o StrictHostKeyChecking=accept-new" git push
+
+$:
+  tag_push:
+    - name: release-stable
+      runner:
+        cpus: 4
+      docker:
+        image: rust:1-bookworm
+        volumes:
+          - pnpm-store:/root/.local/share/pnpm/store:rw
+          - cargo-registry:/usr/local/cargo/registry:rw
+          - cargo-git:/usr/local/cargo/git:rw
+          - cargo-target:/workspace/target:rw
+      stages:
+        - name: install build dependencies
+          script: |
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              build-essential \
+              ca-certificates \
+              curl \
+              git \
+              nodejs \
+              npm \
+              pkg-config \
+              libssl-dev \
+              libmpv-dev \
+              libgtk-3-dev \
+              libayatana-appindicator3-dev \
+              librsvg2-dev \
+              libsoup-3.0-dev \
+              libwebkit2gtk-4.1-dev \
+              patchelf
+            npm install -g n
+            n 24
+            hash -r
+            node --version
+            npm install -g corepack@latest
+            corepack enable
+            corepack prepare pnpm@11.1.3 --activate
+            pnpm --version
+            if ! command -v cargo-tauri >/dev/null 2>&1 && ! command -v tauri >/dev/null 2>&1; then
+              cargo install tauri-cli --locked
+            fi
+        - name: install frontend dependencies
+          script: pnpm install --frozen-lockfile
+        - name: resolve version
+          script: |
+            case "${CNB_BRANCH}" in
+              v*) ;;
+              *) echo "Stable release tags must start with v"; exit 1 ;;
+            esac
+
+            tag_version="${CNB_BRANCH#v}"
+            cargo_version="$(sed -n 's/^version = "\([^"]\+\)"$/\1/p' Cargo.toml | head -n 1)"
+            if [ "${tag_version}" != "${cargo_version}" ]; then
+              echo "Tag version (${tag_version}) does not match Cargo workspace version (${cargo_version})"
+              exit 1
+            fi
+
+            printf '%s' "${tag_version}" > .cnb-release-version
+            echo "##[set-output RELEASE_VERSION=${tag_version}]"
+          exports:
+            RELEASE_VERSION: RELEASE_VERSION
+        - name: build bundles
+          script: cargo tauri build -b "deb,rpm,appimage"
+        - name: collect artifacts
+          script: |
+            shopt -s nullglob
+            mkdir -p dist
+            deb_files=(target/release/bundle/deb/*.deb src-tauri/target/release/bundle/deb/*.deb)
+            rpm_files=(target/release/bundle/rpm/*.rpm src-tauri/target/release/bundle/rpm/*.rpm)
+            appimage_files=(target/release/bundle/appimage/*.AppImage src-tauri/target/release/bundle/appimage/*.AppImage)
+
+            if [ "${#deb_files[@]}" -eq 0 ] || [ "${#rpm_files[@]}" -eq 0 ] || [ "${#appimage_files[@]}" -eq 0 ]; then
+              echo "Expected bundle artifacts not found"
+              echo "deb: ${#deb_files[@]}, rpm: ${#rpm_files[@]}, appimage: ${#appimage_files[@]}"
+              exit 1
+            fi
+
+            cp -v "${deb_files[@]}" dist/
+            cp -v "${rpm_files[@]}" dist/
+            cp -v "${appimage_files[@]}" dist/
+        - name: generate release notes
+          script: |
+            release_version="$(cat .cnb-release-version)"
+            scripts/generate-release-notes.sh "LWE v${release_version}" release-notes.md
+        - name: create CNB stable release
+          type: git:release
+          options:
+            tag: $CNB_BRANCH
+            title: LWE $CNB_BRANCH
+            descriptionFromFile: release-notes.md
+            preRelease: false
+        - name: upload CNB stable assets
+          image: cnbcool/attachments:latest
+          settings:
+            tag: $CNB_BRANCH
+            attachments:
+              - dist/*
+        - name: prepare ArchLinuxCN stable package metadata
+          script: |
+            release_version="$(cat .cnb-release-version)"
+            mkdir -p dist/archlinuxcn/lwe
+            cp packaging/aur/lwe/PKGBUILD packaging/aur/lwe/.SRCINFO dist/archlinuxcn/lwe/
+            sed -i "s/^pkgver=.*/pkgver=${release_version}/" dist/archlinuxcn/lwe/PKGBUILD
+            sed -i "s|^url=.*|url=\"https://cnb.cool/Nesoriel/lwe\"|" dist/archlinuxcn/lwe/PKGBUILD
+            sed -i "s|^source=.*|source=(\"lwe_${release_version}_amd64.deb::https://cnb.cool/Nesoriel/lwe/-/releases/v${release_version}/download/lwe_${release_version}_amd64.deb\")|" dist/archlinuxcn/lwe/PKGBUILD
+            sed -i "s/^pkgver = .*/pkgver = ${release_version}/" dist/archlinuxcn/lwe/.SRCINFO
+            sed -i "s|^[[:space:]]*url = .*|\turl = https://cnb.cool/Nesoriel/lwe|" dist/archlinuxcn/lwe/.SRCINFO
+            sed -i "s|^[[:space:]]*source = .*|\tsource = lwe_${release_version}_amd64.deb::https://cnb.cool/Nesoriel/lwe/-/releases/v${release_version}/download/lwe_${release_version}_amd64.deb|" dist/archlinuxcn/lwe/.SRCINFO
+            tar -C dist/archlinuxcn -czf dist/archlinuxcn-lwe-metadata.tar.gz lwe
+        - name: upload ArchLinuxCN stable metadata
+          image: cnbcool/attachments:latest
+          settings:
+            tag: $CNB_BRANCH
+            attachments:
+              - dist/archlinuxcn-lwe-metadata.tar.gz
+        - name: optionally push ArchLinuxCN stable metadata
+          script: |
+            if [ -z "${ARCHLINUXCN_REPO_PUSH_URL:-}" ] || [ -z "${ARCHLINUXCN_SSH_PRIVATE_KEY:-}" ]; then
+              echo "ARCHLINUXCN_REPO_PUSH_URL or ARCHLINUXCN_SSH_PRIVATE_KEY is not configured; metadata was attached to the CNB stable release instead."
+              exit 0
+            fi
+
+            apt-get update
+            apt-get install -y --no-install-recommends openssh-client
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            printf '%s\n' "${ARCHLINUXCN_SSH_PRIVATE_KEY}" > ~/.ssh/archlinuxcn_key
+            chmod 600 ~/.ssh/archlinuxcn_key
+            ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+            git clone "${ARCHLINUXCN_REPO_PUSH_URL}" archlinuxcn-repo
+            rm -rf archlinuxcn-repo/archlinuxcn/lwe archlinuxcn-repo/lwe
+            if [ -d archlinuxcn-repo/archlinuxcn ]; then
+              mkdir -p archlinuxcn-repo/archlinuxcn/lwe
+              cp dist/archlinuxcn/lwe/PKGBUILD dist/archlinuxcn/lwe/.SRCINFO archlinuxcn-repo/archlinuxcn/lwe/
+            else
+              mkdir -p archlinuxcn-repo/lwe
+              cp dist/archlinuxcn/lwe/PKGBUILD dist/archlinuxcn/lwe/.SRCINFO archlinuxcn-repo/lwe/
+            fi
+            cd archlinuxcn-repo
+            git config user.name "cnb-bot"
+            git config user.email "cnb-bot@users.noreply.cnb.cool"
+            git add .
+            if git diff --cached --quiet; then
+              echo "No ArchLinuxCN metadata changes to publish"
+              exit 0
+            fi
+            git commit -m "lwe: update to $(cat ../.cnb-release-version)"
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/archlinuxcn_key -o StrictHostKeyChecking=accept-new" git push
