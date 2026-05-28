@@ -265,7 +265,7 @@ $:
           script: |
             case "${CNB_BRANCH}" in
               v[0-9]*.[0-9]*.[0-9]*) ;;
-              *) echo "Stable release tags must start with v"; exit 1 ;;
+              *) echo "Skipping non-stable release tag ${CNB_BRANCH}"; exit 0 ;;
             esac
 
             tag_version="${CNB_BRANCH#v}"
