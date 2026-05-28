@@ -66,7 +66,7 @@ main:
         - name: trigger prerelease after quality check
           type: cnb:apply
           options:
-            event: web_trigger_prerelease
+            event: api_trigger_prerelease
             sync: false
 
     - name: deploy-docs-edgeone-pages
@@ -105,7 +105,7 @@ main:
               -t "${EDGEONE_PAGES_API_TOKEN}" \
               -e production
 
-  web_trigger_prerelease:
+  api_trigger_prerelease:
     - name: release-prerelease
       runner:
         cpus: 4
