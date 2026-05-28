@@ -40,7 +40,9 @@ main:
             pnpm --version
             rustup component add rustfmt clippy
         - name: install frontend dependencies
-          script: pnpm install --frozen-lockfile
+          script: |
+            pnpm install --frozen-lockfile
+            pnpm exec svelte-kit sync
         - name: frontend checks
           jobs:
             type-check:
@@ -146,7 +148,9 @@ main:
               cargo install tauri-cli --locked
             fi
         - name: install frontend dependencies
-          script: pnpm install --frozen-lockfile
+          script: |
+            pnpm install --frozen-lockfile
+            pnpm exec svelte-kit sync
         - name: resolve prerelease version
           script: |
             base_version="$(sed -n 's/^version = "\([^"]\+\)"$/\1/p' Cargo.toml | head -n 1)"
@@ -300,7 +304,9 @@ $:
               cargo install tauri-cli --locked
             fi
         - name: install frontend dependencies
-          script: pnpm install --frozen-lockfile
+          script: |
+            pnpm install --frozen-lockfile
+            pnpm exec svelte-kit sync
         - name: resolve version
           script: |
             case "${CNB_BRANCH}" in
