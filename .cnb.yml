@@ -172,6 +172,8 @@ main:
           script: cargo tauri build -b "deb,rpm,appimage"
         - name: collect artifacts
           script: |
+            bash <<'BASH'
+            set -euo pipefail
             shopt -s nullglob
             mkdir -p dist
             deb_files=(target/release/bundle/deb/*.deb src-tauri/target/release/bundle/deb/*.deb)
@@ -187,6 +189,7 @@ main:
             cp -v "${deb_files[@]}" dist/
             cp -v "${rpm_files[@]}" dist/
             cp -v "${appimage_files[@]}" dist/
+            BASH
         - name: generate release notes
           script: |
             prerelease_version="$(cat .cnb-prerelease-version)"
@@ -329,6 +332,8 @@ $:
           script: cargo tauri build -b "deb,rpm,appimage"
         - name: collect artifacts
           script: |
+            bash <<'BASH'
+            set -euo pipefail
             shopt -s nullglob
             mkdir -p dist
             deb_files=(target/release/bundle/deb/*.deb src-tauri/target/release/bundle/deb/*.deb)
@@ -344,6 +349,7 @@ $:
             cp -v "${deb_files[@]}" dist/
             cp -v "${rpm_files[@]}" dist/
             cp -v "${appimage_files[@]}" dist/
+            BASH
         - name: generate release notes
           script: |
             release_version="$(cat .cnb-release-version)"
