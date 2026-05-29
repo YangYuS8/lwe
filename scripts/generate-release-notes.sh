@@ -5,10 +5,10 @@ usage() {
 	cat <<'USAGE'
 Usage: scripts/generate-release-notes.sh <tag-or-title> [output-file]
 
-Generates GitHub Release notes from commits since the previous reachable stable
-tag. Prerelease tags are intentionally ignored so stable releases summarize the
-full stable-to-stable delta. If no previous stable tag exists, all reachable
-commits are included.
+Generates release notes from commits since the previous reachable stable tag.
+Prerelease tags are intentionally ignored so stable releases summarize the full
+stable-to-stable delta. The script fetches release tags first because some CI
+checkouts do not include tags or complete history.
 USAGE
 }
 
@@ -21,8 +21,34 @@ release_name="${1:-${GITHUB_REF_NAME:-HEAD}}"
 output_file="${2:-release-notes.md}"
 
 current_ref="${RELEASE_NOTES_REF:-HEAD}"
+fallback_commits="${RELEASE_NOTES_FALLBACK_COMMITS:-50}"
+fallback_note=""
+
+fetch_release_history() {
+	local remote="${RELEASE_NOTES_REMOTE:-origin}"
+
+	if ! git remote get-url "${remote}" >/dev/null 2>&1; then
+		return 0
+	fi
+
+	if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || printf false)" = "true" ]; then
+		git fetch --force --tags --prune --unshallow "${remote}" 2>/dev/null ||
+			git fetch --force --tags --prune --deepen=1000 "${remote}" 2>/dev/null ||
+			git fetch --force --tags --prune "${remote}" 2>/dev/null ||
+			true
+	else
+		git fetch --force --tags --prune "${remote}" 2>/dev/null || true
+	fi
+}
+
+stable_tag_search_ref="${current_ref}^"
+if ! git rev-parse --verify "${stable_tag_search_ref}^{commit}" >/dev/null 2>&1; then
+	stable_tag_search_ref="${current_ref}"
+fi
+
+fetch_release_history
 previous_tag="$(
-	git tag --merged "${current_ref}^" --sort=-v:refname 2>/dev/null |
+	git tag --merged "${stable_tag_search_ref}" --sort=-v:refname 2>/dev/null |
 		awk '/^v[0-9]+[.][0-9]+[.][0-9]+$/ { print; exit }'
 )"
 
@@ -30,7 +56,14 @@ if [ -n "${previous_tag}" ]; then
 	revision_range="${previous_tag}..${current_ref}"
 	compare_base="${previous_tag}"
 else
-	revision_range="${current_ref}"
+	commit_count="$(git rev-list --count "${current_ref}")"
+	if [ "${commit_count}" -gt "${fallback_commits}" ]; then
+		revision_range="${current_ref}~${fallback_commits}..${current_ref}"
+		fallback_note="No previous stable tag was visible in this checkout, so this note is limited to the latest ${fallback_commits} commits."
+	else
+		revision_range="${current_ref}"
+		fallback_note="No previous stable tag was visible in this checkout."
+	fi
 	compare_base=""
 fi
 
@@ -69,6 +102,9 @@ write_category() {
 		printf ' since `%s`' "${compare_base}"
 	fi
 	printf '.\n\n'
+	if [ -n "${fallback_note}" ]; then
+		printf '%s\n\n' "${fallback_note}"
+	fi
 
 	if [ ! -s "${tmp_file}" ]; then
 		printf 'No user-visible commit changes were found for this release.\n\n'
