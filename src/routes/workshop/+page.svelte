@@ -287,32 +287,37 @@ const runOnlineSearch = async (options?: { page?: number }) => {
       onlineSearchResult = cachedOnlineSearch.result;
       onlineSearchPage = cachedOnlineSearch.result.page;
       jumpToPageValue = String(onlineSearchPage);
-      return;
+    } else {
+      void loadSettingsPage()
+        .then((settings) => {
+          onlineSearchQuery = settings.workshopQuery;
+          onlineSearchAgeRatings = settings.workshopAgeRatings.length
+            ? settings.workshopAgeRatings
+            : ['g', 'pg_13'];
+          onlineSearchItemTypes = settings.workshopItemTypes.length
+            ? settings.workshopItemTypes
+            : ['video', 'scene', 'web', 'application'];
+          onlineSearchPageSizeValue = String(onlineSearchPageSize);
+          onlineSearchPage = 1;
+          jumpToPageValue = '1';
+          void runOnlineSearch({ page: 1 });
+        })
+        .catch(() => {
+          onlineSearchQuery = '';
+          onlineSearchAgeRatings = ['g', 'pg_13'];
+          onlineSearchItemTypes = ['video', 'scene', 'web', 'application'];
+          onlineSearchPageSizeValue = String(onlineSearchPageSize);
+          onlineSearchPage = 1;
+          jumpToPageValue = '1';
+          void runOnlineSearch({ page: 1 });
+        });
     }
 
-    void loadSettingsPage()
-      .then((settings) => {
-        onlineSearchQuery = settings.workshopQuery;
-        onlineSearchAgeRatings = settings.workshopAgeRatings.length
-          ? settings.workshopAgeRatings
-          : ['g', 'pg_13'];
-        onlineSearchItemTypes = settings.workshopItemTypes.length
-          ? settings.workshopItemTypes
-          : ['video', 'scene', 'web', 'application'];
-        onlineSearchPageSizeValue = String(onlineSearchPageSize);
-        onlineSearchPage = 1;
-        jumpToPageValue = '1';
-        void runOnlineSearch({ page: 1 });
-      })
-      .catch(() => {
-        onlineSearchQuery = '';
-        onlineSearchAgeRatings = ['g', 'pg_13'];
-        onlineSearchItemTypes = ['video', 'scene', 'web', 'application'];
-        onlineSearchPageSizeValue = String(onlineSearchPageSize);
-        onlineSearchPage = 1;
-        jumpToPageValue = '1';
-        void runOnlineSearch({ page: 1 });
-      });
+    return () => {
+      if (onlineSearchTimer) {
+        clearTimeout(onlineSearchTimer);
+      }
+    };
   });
 </script>
 
@@ -542,7 +547,7 @@ const runOnlineSearch = async (options?: { page?: number }) => {
     {/if}
 
     {#if initialOnlineSearchLoading}
-      <div class="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]" aria-busy="true" aria-live="polite">
+      <div class="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(220px,18rem))]" aria-busy="true" aria-live="polite">
         {#each Array(6) as _, index (index)}
           <div class="grid gap-2 rounded-[1rem] border border-border/80 bg-card p-3 animate-pulse">
             <div class="aspect-square w-full rounded-[0.9rem] bg-muted"></div>
@@ -565,7 +570,7 @@ const runOnlineSearch = async (options?: { page?: number }) => {
         <p class="text-sm font-medium text-foreground">{$copy.workshop.onlineResults}</p>
         <p class="text-sm leading-6 text-muted-foreground">{$copy.workshop.onlineResultAcquisitionNote}</p>
         {#if onlineSearchResult.items.length}
-          <div class="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+          <div class="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(220px,18rem))]">
             {#each onlineSearchResult.items as item}
               <div class="grid gap-2 rounded-[1rem] border border-border/80 bg-card p-3">
                 <img

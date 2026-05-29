@@ -1,6 +1,6 @@
 # v1 version roadmap
 
-This page captures the maintained development direction from the released v0.9.6 baseline toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
+This page captures the maintained development direction from the released v0.9.7 baseline toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
 
 ## v1 target
 
@@ -26,6 +26,7 @@ For v1, LWE targets:
 | v0.9.0 | Workshop clarity | Discovery and Steam sync expectations are honest. |
 | v0.9.5 | Diagnostics and release prep | Supportability and release posture are ready. |
 | v0.9.6 | Preview performance | Released: Library and Workshop card grids use bounded thumbnail assets instead of raw preview media. |
+| v0.9.7 | Workshop browsing polish | Released: Workshop navigation, cached search restoration, and sparse result layouts are smoother. |
 | v1.0.0-rc.1 | First release candidate | Scope is frozen and validated end-to-end. |
 | v1.0.0-rc.2 | Optional blocker-fix candidate | Only if rc.1 finds release blockers. |
 | v1.0.0 | Stable v1 | Honest, reliable video-first release. |
@@ -232,6 +233,30 @@ Must not claim:
 - performance is guaranteed on every GPU, disk, or desktop environment;
 - scene or web wallpaper runtime support;
 - LWE-managed Workshop downloading independent of Steam.
+
+## v0.9.7: Workshop browsing polish
+
+Theme: keep the Workshop page responsive during navigation and filtering edge cases.
+
+Deliverables:
+
+- Restore cached online Workshop search results without skipping local Workshop and Library marker refresh work.
+- Clean up pending debounced Workshop search timers when leaving the page.
+- Bound online Workshop search result card widths so sparse result sets do not stretch one card across the whole content area.
+- Keep loading skeleton grid dimensions aligned with the final result grid.
+
+Acceptance criteria:
+
+- Navigating to Workshop keeps the page shell and search controls responsive while cached or asynchronous data is restored.
+- Returning to a cached Workshop search still schedules required local marker refreshes when those caches are stale.
+- A single online search result keeps normal card proportions instead of becoming a full-width oversized card.
+- `pnpm check` passes.
+
+Must not claim:
+
+- Workshop search results are locally synchronized;
+- LWE directly downloads Workshop content;
+- all compositor or WebView performance issues are fixed.
 
 ## v1.0.0-rc.1: first release candidate
 

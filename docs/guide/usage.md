@@ -27,6 +27,8 @@ Online Workshop results are discovery-only. A result being visible in LWE does n
 
 Search result cards label inferred runtime expectations. Video results are the only currently runnable type after local sync. Scene and web results are recognized for metadata and compatibility reporting, but are not runnable by the current video runtime. Application results are outside the current runtime scope.
 
+Workshop search cards keep a bounded card width even when a filter returns only one or two results, so sparse result sets keep the same visual scale as normal browsing pages.
+
 When the Steam Web API key is missing, Workshop search points you back to **Settings**. Settings also distinguishes the common Steam integration states where possible: Steam not detected, Steam detected but Wallpaper Engine Workshop content missing, Wallpaper Engine present but no local Workshop items synchronized yet, and local Workshop content available.
 
 ## Compatibility levels
