@@ -90,6 +90,7 @@ main:
               -t "${EDGEONE_PAGES_API_TOKEN}" \
               -e production
 
+$:
   api_trigger_prerelease:
     - name: release-prerelease
       runner:
@@ -138,10 +139,10 @@ main:
             PRERELEASE_TAG: PRERELEASE_TAG
             SHORT_SHA: SHORT_SHA
         - name: build bundles
-          if: test -f .cnb-release-version
+          if: test -f .cnb-prerelease-version
           script: cargo tauri build -b "deb,rpm,appimage"
         - name: collect artifacts
-          if: test -f .cnb-release-version
+          if: test -f .cnb-prerelease-version
           script: |
             bash <<'BASH'
             set -euo pipefail
@@ -178,61 +179,41 @@ main:
             tag: $PRERELEASE_TAG
             attachments:
               - dist/*
-        - name: prepare ArchLinuxCN development package metadata
+        - name: prepare ArchLinuxCN development package PR payload
           script: |
             short_sha="$(cat .cnb-short-sha)"
             base_version="$(sed -n 's/^version = "\([^"]\+\)"$/\1/p' Cargo.toml | head -n 1)"
             archlinuxcn_pkgver="${base_version}.beta.${CNB_BUILD_ID}.${short_sha}"
-            mkdir -p dist/archlinuxcn/lwe-git
-            cp packaging/aur/lwe-git/PKGBUILD packaging/aur/lwe-git/.SRCINFO dist/archlinuxcn/lwe-git/
-            sed -i "s/^pkgver=.*/pkgver=${archlinuxcn_pkgver}/" dist/archlinuxcn/lwe-git/PKGBUILD
-            sed -i "s/^pkgrel=.*/pkgrel=1/" dist/archlinuxcn/lwe-git/PKGBUILD
-            sed -i "s|^url=.*|url=\"https://cnb.cool/Nesoriel/lwe\"|" dist/archlinuxcn/lwe-git/PKGBUILD
-            sed -i "s|^source=.*|source=(\"git+https://cnb.cool/Nesoriel/lwe.git\")|" dist/archlinuxcn/lwe-git/PKGBUILD
-            sed -i "s/^pkgver = .*/pkgver = ${archlinuxcn_pkgver}/" dist/archlinuxcn/lwe-git/.SRCINFO
-            sed -i "s/^pkgrel = .*/pkgrel = 1/" dist/archlinuxcn/lwe-git/.SRCINFO
-            sed -i "s|^[[:space:]]*url = .*|\turl = https://cnb.cool/Nesoriel/lwe|" dist/archlinuxcn/lwe-git/.SRCINFO
-            sed -i "s|^[[:space:]]*source = .*|\tsource = git+https://cnb.cool/Nesoriel/lwe.git|" dist/archlinuxcn/lwe-git/.SRCINFO
-            tar -C dist/archlinuxcn -czf dist/archlinuxcn-lwe-git-metadata.tar.gz lwe-git
-        - name: upload ArchLinuxCN development metadata
+            full_sha="$(git rev-parse HEAD)"
+
+            printf '%s' "${archlinuxcn_pkgver}" > .cnb-archlinuxcn-pkgver
+            LWE_ARCHLINUXCN_SOURCE_COMMIT="${full_sha}" \
+              scripts/prepare-archlinuxcn-package.sh git "${archlinuxcn_pkgver}" dist/archlinuxcn
+            tar -C dist/archlinuxcn -czf dist/archlinuxcn-lwe-git-pr.tar.gz archlinuxcn/lwe-git
+        - name: upload ArchLinuxCN development PR payload
           image: cnbcool/attachments:latest
           settings:
             tag: $PRERELEASE_TAG
             attachments:
-              - dist/archlinuxcn-lwe-git-metadata.tar.gz
-        - name: optionally push ArchLinuxCN development metadata
+              - dist/archlinuxcn-lwe-git-pr.tar.gz
+        - name: optionally open ArchLinuxCN development package PR
           script: |
-            if [ -z "${ARCHLINUXCN_REPO_PUSH_URL:-}" ] || [ -z "${ARCHLINUXCN_SSH_PRIVATE_KEY:-}" ]; then
-              echo "ARCHLINUXCN_REPO_PUSH_URL or ARCHLINUXCN_SSH_PRIVATE_KEY is not configured; metadata was attached to the CNB prerelease instead."
-              exit 0
-            fi
+            archlinuxcn_pkgver="$(cat .cnb-archlinuxcn-pkgver)"
+            body_file="dist/archlinuxcn-lwe-git-pr.md"
+            cat > "${body_file}" <<EOF
+            Update LWE development package metadata for CNB prerelease ${PRERELEASE_TAG}.
 
-            mkdir -p ~/.ssh
-            chmod 700 ~/.ssh
-            printf '%s\n' "${ARCHLINUXCN_SSH_PRIVATE_KEY}" > ~/.ssh/archlinuxcn_key
-            chmod 600 ~/.ssh/archlinuxcn_key
-            ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null || true
-            git clone "${ARCHLINUXCN_REPO_PUSH_URL}" archlinuxcn-repo
-            rm -rf archlinuxcn-repo/archlinuxcn/lwe-git archlinuxcn-repo/lwe-git
-            if [ -d archlinuxcn-repo/archlinuxcn ]; then
-              mkdir -p archlinuxcn-repo/archlinuxcn/lwe-git
-              cp dist/archlinuxcn/lwe-git/PKGBUILD dist/archlinuxcn/lwe-git/.SRCINFO archlinuxcn-repo/archlinuxcn/lwe-git/
-            else
-              mkdir -p archlinuxcn-repo/lwe-git
-              cp dist/archlinuxcn/lwe-git/PKGBUILD dist/archlinuxcn/lwe-git/.SRCINFO archlinuxcn-repo/lwe-git/
-            fi
-            cd archlinuxcn-repo
-            git config user.name "cnb-bot"
-            git config user.email "cnb-bot@users.noreply.cnb.cool"
-            git add .
-            if git diff --cached --quiet; then
-              echo "No ArchLinuxCN metadata changes to publish"
-              exit 0
-            fi
-            git commit -m "lwe-git: update to $(cat ../.cnb-prerelease-version)"
-            GIT_SSH_COMMAND="ssh -i ~/.ssh/archlinuxcn_key -o StrictHostKeyChecking=accept-new" git push
+            This PR payload was generated from ${CNB_REPO_SLUG}@${CNB_COMMIT}.
+            EOF
 
-$:
+            scripts/open-archlinuxcn-pr.sh \
+              dist/archlinuxcn \
+              lwe-git \
+              "lwe-git-${archlinuxcn_pkgver}" \
+              "lwe-git: update to ${archlinuxcn_pkgver}" \
+              "lwe-git: update to ${archlinuxcn_pkgver}" \
+              "${body_file}"
+
   tag_push:
     - name: release-stable
       runner:
@@ -289,8 +270,10 @@ $:
           exports:
             RELEASE_VERSION: RELEASE_VERSION
         - name: build bundles
+          if: test -f .cnb-release-version
           script: cargo tauri build -b "deb,rpm,appimage"
         - name: collect artifacts
+          if: test -f .cnb-release-version
           script: |
             bash <<'BASH'
             set -euo pipefail
@@ -330,55 +313,34 @@ $:
             tag: $CNB_BRANCH
             attachments:
               - dist/*
-        - name: prepare ArchLinuxCN stable package metadata
+        - name: prepare ArchLinuxCN stable package PR payload
           if: test -f .cnb-release-version
           script: |
             release_version="$(cat .cnb-release-version)"
-            mkdir -p dist/archlinuxcn/lwe
-            cp packaging/aur/lwe/PKGBUILD packaging/aur/lwe/.SRCINFO dist/archlinuxcn/lwe/
-            sed -i "s/^pkgver=.*/pkgver=${release_version}/" dist/archlinuxcn/lwe/PKGBUILD
-            sed -i "s|^url=.*|url=\"https://cnb.cool/Nesoriel/lwe\"|" dist/archlinuxcn/lwe/PKGBUILD
-            sed -i "s|^source=.*|source=(\"lwe_${release_version}_amd64.deb::https://cnb.cool/Nesoriel/lwe/-/releases/v${release_version}/download/lwe_${release_version}_amd64.deb\")|" dist/archlinuxcn/lwe/PKGBUILD
-            sed -i "s/^pkgver = .*/pkgver = ${release_version}/" dist/archlinuxcn/lwe/.SRCINFO
-            sed -i "s|^[[:space:]]*url = .*|\turl = https://cnb.cool/Nesoriel/lwe|" dist/archlinuxcn/lwe/.SRCINFO
-            sed -i "s|^[[:space:]]*source = .*|\tsource = lwe_${release_version}_amd64.deb::https://cnb.cool/Nesoriel/lwe/-/releases/v${release_version}/download/lwe_${release_version}_amd64.deb|" dist/archlinuxcn/lwe/.SRCINFO
-            tar -C dist/archlinuxcn -czf dist/archlinuxcn-lwe-metadata.tar.gz lwe
-        - name: upload ArchLinuxCN stable metadata
+            scripts/prepare-archlinuxcn-package.sh stable "${release_version}" dist/archlinuxcn
+            tar -C dist/archlinuxcn -czf dist/archlinuxcn-lwe-pr.tar.gz archlinuxcn/lwe
+        - name: upload ArchLinuxCN stable PR payload
           if: test -f .cnb-release-version
           image: cnbcool/attachments:latest
           settings:
             tag: $CNB_BRANCH
             attachments:
-              - dist/archlinuxcn-lwe-metadata.tar.gz
-        - name: optionally push ArchLinuxCN stable metadata
+              - dist/archlinuxcn-lwe-pr.tar.gz
+        - name: optionally open ArchLinuxCN stable package PR
           if: test -f .cnb-release-version
           script: |
-            if [ -z "${ARCHLINUXCN_REPO_PUSH_URL:-}" ] || [ -z "${ARCHLINUXCN_SSH_PRIVATE_KEY:-}" ]; then
-              echo "ARCHLINUXCN_REPO_PUSH_URL or ARCHLINUXCN_SSH_PRIVATE_KEY is not configured; metadata was attached to the CNB stable release instead."
-              exit 0
-            fi
+            release_version="$(cat .cnb-release-version)"
+            body_file="dist/archlinuxcn-lwe-pr.md"
+            cat > "${body_file}" <<EOF
+            Update LWE stable package metadata for ${CNB_BRANCH}.
 
-            mkdir -p ~/.ssh
-            chmod 700 ~/.ssh
-            printf '%s\n' "${ARCHLINUXCN_SSH_PRIVATE_KEY}" > ~/.ssh/archlinuxcn_key
-            chmod 600 ~/.ssh/archlinuxcn_key
-            ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null || true
-            git clone "${ARCHLINUXCN_REPO_PUSH_URL}" archlinuxcn-repo
-            rm -rf archlinuxcn-repo/archlinuxcn/lwe archlinuxcn-repo/lwe
-            if [ -d archlinuxcn-repo/archlinuxcn ]; then
-              mkdir -p archlinuxcn-repo/archlinuxcn/lwe
-              cp dist/archlinuxcn/lwe/PKGBUILD dist/archlinuxcn/lwe/.SRCINFO archlinuxcn-repo/archlinuxcn/lwe/
-            else
-              mkdir -p archlinuxcn-repo/lwe
-              cp dist/archlinuxcn/lwe/PKGBUILD dist/archlinuxcn/lwe/.SRCINFO archlinuxcn-repo/lwe/
-            fi
-            cd archlinuxcn-repo
-            git config user.name "cnb-bot"
-            git config user.email "cnb-bot@users.noreply.cnb.cool"
-            git add .
-            if git diff --cached --quiet; then
-              echo "No ArchLinuxCN metadata changes to publish"
-              exit 0
-            fi
-            git commit -m "lwe: update to $(cat ../.cnb-release-version)"
-            GIT_SSH_COMMAND="ssh -i ~/.ssh/archlinuxcn_key -o StrictHostKeyChecking=accept-new" git push
+            This PR payload was generated from ${CNB_REPO_SLUG}@${CNB_COMMIT}.
+            EOF
+
+            scripts/open-archlinuxcn-pr.sh \
+              dist/archlinuxcn \
+              lwe \
+              "lwe-${release_version}" \
+              "lwe: update to ${release_version}" \
+              "lwe: update to ${release_version}" \
+              "${body_file}"
