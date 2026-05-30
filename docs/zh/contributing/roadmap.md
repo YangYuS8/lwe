@@ -27,6 +27,7 @@ v1 目标包括：
 | v0.9.5 | 诊断与发布准备 | 支持能力和发布姿态准备就绪。 |
 | v0.9.6 | 预览性能 | 已发布：Library 和 Workshop 卡片网格使用受控缩略图资源，而不是原始预览媒体。 |
 | v0.9.7 | Workshop 浏览打磨 | 已发布：Workshop 导航、缓存搜索恢复和少量结果布局更流畅。 |
+| v0.9.8 | 后台功耗画像 | 运行时和后台刷新减少 CPU 占用、降低唤醒频率，并保持可观测。 |
 | v1.0.0-rc.1 | 首个候选版 | 范围冻结并完成端到端验证。 |
 | v1.0.0-rc.2 | 可选阻塞修复候选版 | 仅在 rc.1 发现发布阻塞问题时使用。 |
 | v1.0.0 | 稳定 v1 | 诚实、可靠、视频优先的稳定版。 |
@@ -257,6 +258,58 @@ v1 目标包括：
 - Workshop 搜索结果已经同步到本地；
 - LWE 直接下载 Workshop 内容；
 - 所有合成器或 WebView 性能问题都已修复。
+
+## v0.9.8：后台运行时功耗画像
+
+主题：降低 LWE 后台运行时的 CPU 唤醒和不必要工作，尤其是在存在活动视频壁纸时。
+
+问题陈述：
+
+- 当前 engine loop 会按帧间隔唤醒，扫描活动 surface，并为已渲染输出重新注册 frame callback。
+- mpv 渲染路径会在热路径检查新帧并 drain mpv events。
+- 显示器发现可能在每次请求时 shell out 到 `niri msg -j outputs`。
+- Library 和 Workshop 投影在较便宜的缓存视图足够时，仍可能触发完整目录刷新和兼容性评估。
+- 安全扫描当前通过 Tauri Linux GTK/WebKit 栈报告 `glib` 告警。应跟踪上游 Tauri/GTK 更新路径，不要用不安全的依赖覆盖来掩盖。
+
+交付内容：
+
+- 记录以下场景的 idle/background CPU 唤醒和 CPU 占用基线：
+  - 应用打开但未运行壁纸；
+  - 一个活动视频壁纸；
+  - 应用最小化/后台运行且存在活动壁纸；
+  - 热缓存后的 Library/Workshop refresh。
+- 增加轻量运行时诊断或日志，暴露 frame pacing、跳帧、活动 surface 数量和后端 event-loop 状态，同时不增加正常路径开销。
+- 尽可能减少逐帧 engine 工作：
+  - 当 mpv 没有新帧且 surface 无 resize/state change 时避免渲染；
+  - 对未变化 surface 避免重复 EGL make-current/resize/swap；
+  - frame callback 只绑定到可见/活动壁纸 surface。
+- 通过短期缓存或显式 invalidation 降低显示器发现成本，避免频繁调用 `niri msg -j outputs`。
+- 拆分便宜 snapshot 读取和昂贵 Workshop/Library 完整刷新，使页面加载和 restore 流程可复用热投影。
+- 持续维护安全依赖卫生：
+  - Workshop HTTP 请求使用 Rustls-backed TLS，而不是 OpenSSL-backed native TLS；
+  - 跟踪 Tauri/Linux GTK 依赖更新，寻找脱离易受攻击 `glib` 0.18.x 的受支持路径。
+
+实现说明：
+
+- 功耗优化影响运行时，应优先采用小而可测的改动，并保持当前 `niri` 视频路径可靠。
+- 功耗声明必须基于真实桌面观察。CI 可以覆盖不变量和回归，但不能证明合成器/GPU 功耗行为。
+- 优化时不改变支持范围；场景和网页壁纸仍保持仅识别，除非另行实现并验证。
+- 不要为了让扫描器安静而对 Tauri 的 GTK 栈做不安全 Cargo patch。只有在行为和打包仍通过验证时，才升级 Tauri 或移除受影响功能。
+
+验收标准：
+
+- 在已验证 Wayland + `niri` 环境记录优化前后的测量结果。
+- 活动视频壁纸不回归已验证路径上的应用、清除、恢复或多显示器行为。
+- 手动测量显示 idle/background 路径减少了不必要唤醒或降低 CPU 占用。
+- 常规导航中，显示器发现和 Library/Workshop 加载路径避免不必要的重复完整刷新。
+- Workshop HTTP 请求的 `cargo tree` 中不再出现 OpenSSL/native-tls。
+
+不得宣称：
+
+- 所有设备都有电池续航改善；
+- 超出已验证 Wayland + `niri` 路径的合成器支持；
+- 场景/网页运行时支持；
+- 已在本地修复上游 GTK/WebKit/Tauri 漏洞，除非依赖图确实移动到 fixed 版本。
 
 ## v1.0.0-rc.1：首个候选版
 

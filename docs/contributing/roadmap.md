@@ -27,6 +27,7 @@ For v1, LWE targets:
 | v0.9.5 | Diagnostics and release prep | Supportability and release posture are ready. |
 | v0.9.6 | Preview performance | Released: Library and Workshop card grids use bounded thumbnail assets instead of raw preview media. |
 | v0.9.7 | Workshop browsing polish | Released: Workshop navigation, cached search restoration, and sparse result layouts are smoother. |
+| v0.9.8 | Background power profile | Runtime and background refresh work use less CPU, wake less often, and remain observable. |
 | v1.0.0-rc.1 | First release candidate | Scope is frozen and validated end-to-end. |
 | v1.0.0-rc.2 | Optional blocker-fix candidate | Only if rc.1 finds release blockers. |
 | v1.0.0 | Stable v1 | Honest, reliable video-first release. |
@@ -257,6 +258,58 @@ Must not claim:
 - Workshop search results are locally synchronized;
 - LWE directly downloads Workshop content;
 - all compositor or WebView performance issues are fixed.
+
+## v0.9.8: background runtime power profile
+
+Theme: reduce CPU wakeups and unnecessary work while LWE is running in the background, especially with active video wallpapers.
+
+Problem statement:
+
+- The current engine loop wakes on the frame interval, scans active surfaces, and re-arms frame callbacks for rendered outputs.
+- The mpv render path checks for new frames and drains mpv events in the hot path.
+- Monitor discovery can shell out to `niri msg -j outputs` for each request.
+- Library and Workshop projections can trigger full catalog refresh and compatibility assessment when a cheaper cached view would be enough.
+- Security scanning currently reports a `glib` advisory through the Tauri Linux GTK/WebKit stack. This should be tracked with upstream Tauri/GTK movement; do not paper over it with unsafe dependency overrides.
+
+Deliverables:
+
+- Measure baseline idle/background CPU wakeups and CPU usage for:
+  - app open with no wallpaper running;
+  - one active video wallpaper;
+  - minimized/background app with an active wallpaper;
+  - Library/Workshop refresh after warm cache.
+- Add lightweight runtime diagnostics or logs that expose frame pacing, skipped frames, active surface count, and backend event-loop state without increasing normal overhead.
+- Reduce per-frame engine work where possible:
+  - avoid rendering when mpv has no new frame and no surface resize/state change is pending;
+  - avoid redundant EGL make-current/resize/swap work for unchanged surfaces;
+  - keep frame callbacks tied to visible/active wallpaper surfaces only.
+- Make monitor discovery cheaper by adding a short-lived cache or explicit invalidation path before calling `niri msg -j outputs` repeatedly.
+- Separate cheap snapshot reads from expensive Workshop/Library full refreshes so page loads and restore flows can reuse warm projections.
+- Keep security dependency hygiene current:
+  - use Rustls-backed Workshop HTTP requests instead of OpenSSL-backed native TLS;
+  - monitor Tauri/Linux GTK dependency updates for a supported path away from vulnerable `glib` 0.18.x.
+
+Implementation notes:
+
+- Treat power work as runtime-sensitive: prefer small, measurable changes and keep the current `niri` video path reliable.
+- Use real desktop observation for power claims. CI can cover invariants and regressions, but it cannot prove compositor/GPU power behavior.
+- Avoid changing supported runtime scope while optimizing; scene and web wallpapers remain recognized-only unless separately implemented and verified.
+- Avoid unsafe Cargo patching of Tauri's GTK stack just to silence scanners. Upgrade Tauri or remove affected features only when behavior and packaging remain validated.
+
+Acceptance criteria:
+
+- Baseline and after-change measurements are recorded for the verified Wayland + `niri` setup.
+- An active video wallpaper does not regress apply, clear, restore, or multi-monitor behavior on the verified path.
+- Idle/background app paths show fewer unnecessary wakeups or lower CPU usage in manual measurement.
+- Monitor discovery and Library/Workshop load paths avoid avoidable repeated full refreshes during normal navigation.
+- OpenSSL/native-tls no longer appears in `cargo tree` for Workshop HTTP requests.
+
+Must not claim:
+
+- battery-life improvements on every device;
+- compositor support beyond the verified Wayland + `niri` path;
+- scene/web runtime support;
+- that upstream GTK/WebKit/Tauri vulnerabilities are fixed locally unless the dependency graph actually moves to fixed versions.
 
 ## v1.0.0-rc.1: first release candidate
 
