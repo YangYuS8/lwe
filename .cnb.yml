@@ -140,7 +140,9 @@ $:
             SHORT_SHA: SHORT_SHA
         - name: build bundles
           if: test -f .cnb-prerelease-version
-          script: cargo tauri build -b "deb,rpm,appimage"
+          script: |
+            rm -rf target/release/bundle src-tauri/target/release/bundle dist
+            cargo tauri build -b "deb,rpm,appimage"
         - name: collect artifacts
           if: test -f .cnb-prerelease-version
           script: |
@@ -271,7 +273,9 @@ $:
             RELEASE_VERSION: RELEASE_VERSION
         - name: build bundles
           if: test -f .cnb-release-version
-          script: cargo tauri build -b "deb,rpm,appimage"
+          script: |
+            rm -rf target/release/bundle src-tauri/target/release/bundle dist
+            cargo tauri build -b "deb,rpm,appimage"
         - name: collect artifacts
           if: test -f .cnb-release-version
           script: |
