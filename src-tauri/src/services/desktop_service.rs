@@ -58,11 +58,17 @@ impl DesktopService {
     }
 
     pub fn load_page() -> Result<DesktopPageResult, String> {
-        Self::load_page_with_projection(LibraryService::load_projection())
+        Self::load_page_with_projection_and_monitors(
+            LibraryService::load_projection(),
+            MonitorService::list_monitors(),
+        )
     }
 
     pub fn restore_saved_assignments() -> Result<(), String> {
-        let page = Self::load_page()?;
+        let page = Self::load_page_with_projection_and_monitors(
+            LibraryService::load_projection(),
+            MonitorService::list_monitors_uncached(),
+        )?;
         let issues = Self::restore_saved_assignments_with(&page, |monitor, item_id| {
             Self::apply_with_real_backend(monitor, item_id)
         });
@@ -92,7 +98,16 @@ impl DesktopService {
     pub(crate) fn load_page_with_projection(
         library_projection: Result<LibraryProjection, String>,
     ) -> Result<DesktopPageResult, String> {
-        let monitors = MonitorService::list_monitors();
+        Self::load_page_with_projection_and_monitors(
+            library_projection,
+            MonitorService::list_monitors(),
+        )
+    }
+
+    fn load_page_with_projection_and_monitors(
+        library_projection: Result<LibraryProjection, String>,
+        monitors: MonitorDiscoveryResult,
+    ) -> Result<DesktopPageResult, String> {
         let assignments = match DesktopPersistenceService::for_user_path() {
             Ok(service) => service.load_state(),
             Err(reason) => DesktopPersistenceLoad::Unavailable { reason },
@@ -395,7 +410,7 @@ impl DesktopService {
             return Ok(result);
         }
 
-        let monitors = MonitorService::list_monitors();
+        let monitors = MonitorService::list_monitors_uncached();
 
         match MonitorService::resolve_specific_monitor(&monitors, monitor_id) {
             MonitorDiscoveryResult::Known(monitors) if monitors.is_empty() => {
@@ -698,7 +713,7 @@ impl DesktopService {
     }
 
     pub fn clear_monitor(monitor_id: &str) -> Result<DesktopApplyResult, String> {
-        let monitors = MonitorService::list_monitors();
+        let monitors = MonitorService::list_monitors_uncached();
 
         match MonitorService::resolve_specific_monitor(&monitors, monitor_id) {
             MonitorDiscoveryResult::Known(monitors) if monitors.is_empty() => {

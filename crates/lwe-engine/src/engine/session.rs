@@ -138,6 +138,7 @@ impl WallpaperSession {
         wl_surface: &WlSurface,
         width: i32,
         height: i32,
+        force_frame_poll: bool,
     ) -> Result<bool> {
         // Lazy initialization
         if !self.initialized {
@@ -148,38 +149,40 @@ impl WallpaperSession {
             return Ok(false);
         }
 
-        // Get EGL window
-        let egl_window = match self.egl_window.as_mut() {
-            Some(w) => w,
-            None => return Ok(false),
-        };
-
-        // Resize if needed
-        if egl_window.width() != width || egl_window.height() != height {
-            egl_window.resize(width, height)?;
-        }
-
-        // Make context current
-        egl_context.make_current(egl_window)?;
-
         // Render MPV frame only if we have a frame ready
         if let Some(ref mut player) = self.player {
-            // Check if there's a new frame available
-            let has_frame = player.has_frame();
+            let egl_window = match self.egl_window.as_mut() {
+                Some(w) => w,
+                None => return Ok(false),
+            };
+            let resized = egl_window.width() != width || egl_window.height() != height;
+            let has_frame = player.consume_frame_update(force_frame_poll);
+
+            if !has_frame && !resized {
+                return Ok(false);
+            }
+
+            if resized {
+                egl_window.resize(width, height)?;
+            }
+
+            // Make the context current only when there is actual render work.
+            egl_context.make_current(egl_window)?;
+
+            // Clear background
+            unsafe {
+                gl::ClearColor(0.0, 0.0, 0.0, 1.0);
+                gl::Clear(gl::COLOR_BUFFER_BIT);
+                gl::Viewport(0, 0, width, height);
+            }
 
             if has_frame {
-                // Clear background
-                unsafe {
-                    gl::ClearColor(0.0, 0.0, 0.0, 1.0);
-                    gl::Clear(gl::COLOR_BUFFER_BIT);
-                    gl::Viewport(0, 0, width, height);
-                }
-
                 // Render the frame
                 match player.render(width, height, 0) {
                     Ok(true) => {
                         // Swap buffers only after rendering a valid frame
                         egl_context.swap_buffers(egl_window)?;
+                        player.report_swap();
                         return Ok(true);
                     }
                     Ok(false) => return Ok(false),
@@ -189,7 +192,6 @@ impl WallpaperSession {
                     }
                 }
             }
-            // If no frame yet, don't swap - keep previous content
         }
 
         Ok(false)

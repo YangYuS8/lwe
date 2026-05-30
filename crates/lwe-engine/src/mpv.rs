@@ -461,22 +461,20 @@ impl MpvPlayer {
         self.load_source(&path_str)
     }
 
-    /// Check if a new frame is available for rendering
-    pub fn has_frame(&self) -> bool {
-        // Check if render context update callback was triggered
-        if self.frame_available.load(Ordering::Acquire) {
-            return true;
+    /// Consume a pending render-context update and report whether a new frame is ready.
+    pub fn consume_frame_update(&mut self, force_poll: bool) -> bool {
+        if !self.frame_available.swap(false, Ordering::AcqRel) && !force_poll {
+            return false;
         }
 
-        // Also check via mpv_render_context_update if we have a render context
-        if let Some(render_ctx) = self.render_context {
-            let flags = unsafe { libmpv_sys::mpv_render_context_update(render_ctx) };
-            if flags & MPV_RENDER_UPDATE_FRAME != 0 {
-                return true;
-            }
-        }
+        self.process_events();
 
-        false
+        self.render_context
+            .map(|render_ctx| {
+                let flags = unsafe { libmpv_sys::mpv_render_context_update(render_ctx) };
+                flags & MPV_RENDER_UPDATE_FRAME != 0
+            })
+            .unwrap_or(false)
     }
 
     /// Render a video frame
@@ -485,17 +483,6 @@ impl MpvPlayer {
             debug!("No render context available");
             return Ok(false);
         };
-
-        self.process_events();
-
-        let update_flags = unsafe { libmpv_sys::mpv_render_context_update(render_ctx) };
-        let has_new_frame = (update_flags & MPV_RENDER_UPDATE_FRAME) != 0;
-
-        let _ = self.frame_available.swap(false, Ordering::AcqRel);
-
-        if !has_new_frame {
-            return Ok(false);
-        }
 
         debug!(
             "🎬 Rendering NEW frame: {}x{} to FBO {}",

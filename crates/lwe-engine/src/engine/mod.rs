@@ -353,12 +353,15 @@ fn render_all_surfaces(state: &mut EngineState) {
             None => continue,
         };
 
+        let is_waiting_for_first_frame = surface_info.pending_apply_path.is_some();
+
         // Render frame
         match session.render_frame_to_surface(
             egl_context,
             &surface_info.wl_surface,
             surface_info.width as i32,
             surface_info.height as i32,
+            is_waiting_for_first_frame,
         ) {
             Ok(true) => {
                 if let Some(path) = surface_info.pending_apply_path.take() {
