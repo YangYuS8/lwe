@@ -18,7 +18,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 
 # Async
-tokio = { version = "1.0", features = ["sync", "rt-multi-thread"] }
+tokio = { version = "1.52", features = ["sync", "rt-multi-thread"] }
 
 # Parallel processing
 rayon = "1.12"
