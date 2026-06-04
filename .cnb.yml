@@ -2,7 +2,7 @@ main:
   push:
     - name: quality-check
       runner:
-        cpus: 4
+        cpus: 64
       docker:
         build:
           dockerfile: .cnb/Dockerfile
@@ -56,7 +56,7 @@ main:
 
     - name: deploy-docs-edgeone-pages
       runner:
-        cpus: 2
+        cpus: 64
       docker:
         image: node:24-bookworm
         volumes:
@@ -94,7 +94,7 @@ $:
   api_trigger_prerelease:
     - name: release-prerelease
       runner:
-        cpus: 4
+        cpus: 64
       docker:
         build:
           dockerfile: .cnb/Dockerfile
@@ -219,7 +219,7 @@ $:
   tag_push:
     - name: release-stable
       runner:
-        cpus: 4
+        cpus: 64
       docker:
         build:
           dockerfile: .cnb/Dockerfile
