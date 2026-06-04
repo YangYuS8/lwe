@@ -1,6 +1,6 @@
 # v1 version roadmap
 
-This page captures the maintained development direction from the released v0.9.7 baseline toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
+This page captures the maintained development direction from the released v0.9.8 baseline toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
 
 ## v1 target
 
@@ -27,7 +27,7 @@ For v1, LWE targets:
 | v0.9.5 | Diagnostics and release prep | Supportability and release posture are ready. |
 | v0.9.6 | Preview performance | Released: Library and Workshop card grids use bounded thumbnail assets instead of raw preview media. |
 | v0.9.7 | Workshop browsing polish | Released: Workshop navigation, cached search restoration, and sparse result layouts are smoother. |
-| v0.9.8 | Background power profile | Runtime and background refresh work use less CPU, wake less often, and remain observable. |
+| v0.9.8 | Background power profile | Released: runtime and background refresh paths reduce unnecessary work, reuse warm snapshots, and expose lightweight snapshot diagnostics. |
 | v1.0.0-rc.1 | First release candidate | Scope is frozen and validated end-to-end. |
 | v1.0.0-rc.2 | Optional blocker-fix candidate | Only if rc.1 finds release blockers. |
 | v1.0.0 | Stable v1 | Honest, reliable video-first release. |
@@ -260,6 +260,8 @@ Must not claim:
 - all compositor or WebView performance issues are fixed.
 
 ## v0.9.8: background runtime power profile
+
+Status: completed for the v0.9.8 release. The release includes lower idle render work, cached monitor discovery, warm Workshop/Library snapshot reads for normal page load and restore paths, Rustls-backed Workshop HTTP, and lightweight snapshot source diagnostics. Real desktop power measurements remain environment-specific and should not be generalized beyond the verified Wayland + `niri` setup.
 
 Theme: reduce CPU wakeups and unnecessary work while LWE is running in the background, especially with active video wallpapers.
 

@@ -19,6 +19,7 @@ pub struct AssessedWorkshopCatalogEntry {
 pub struct WorkshopRefreshResult {
     pub catalog_entries: Vec<AssessedWorkshopCatalogEntry>,
     pub library_refresh_required: bool,
+    pub served_from_snapshot: bool,
 }
 
 impl WorkshopRefreshResult {
@@ -45,8 +46,10 @@ mod tests {
         let result = WorkshopRefreshResult {
             catalog_entries: Vec::new(),
             library_refresh_required: true,
+            served_from_snapshot: false,
         };
 
         assert!(result.library_refresh_required);
+        assert!(!result.served_from_snapshot);
     }
 }

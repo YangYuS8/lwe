@@ -59,6 +59,7 @@ export interface WorkshopItemSummary {
 export interface WorkshopPageSnapshot {
   items: WorkshopItemSummary[];
   selectedItemId: string | null;
+  servedFromSnapshot?: boolean;
   stale: boolean;
 }
 
@@ -121,6 +122,7 @@ export interface LibraryPageSnapshot {
   monitorDiscoveryIssue?: string | null;
   desktopAssignmentIssue?: string | null;
   desktopAssignmentsAvailable: boolean;
+  servedFromSnapshot?: boolean;
   stale: boolean;
 }
 

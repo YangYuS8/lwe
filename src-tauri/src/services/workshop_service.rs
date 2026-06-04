@@ -8,10 +8,42 @@ use crate::services::compatibility_service::CompatibilityService;
 use crate::services::settings_persistence_service::SettingsPersistenceService;
 use lwe_library::{SteamLibrary, WorkshopCatalogEntry, WorkshopScanner};
 use serde_json::Value;
+use std::sync::{Mutex, OnceLock};
+
+static WORKSHOP_REFRESH_CACHE: OnceLock<Mutex<Option<WorkshopRefreshResult>>> = OnceLock::new();
+
+fn workshop_refresh_cache() -> &'static Mutex<Option<WorkshopRefreshResult>> {
+    WORKSHOP_REFRESH_CACHE.get_or_init(|| Mutex::new(None))
+}
 
 pub struct WorkshopService;
 
 impl WorkshopService {
+    fn cached_refresh() -> Option<WorkshopRefreshResult> {
+        workshop_refresh_cache()
+            .lock()
+            .ok()
+            .and_then(|cache| cache.as_ref().cloned())
+            .map(|mut cached| {
+                cached.served_from_snapshot = true;
+                cached
+            })
+    }
+
+    fn store_refresh_cache(result: &WorkshopRefreshResult) {
+        if let Ok(mut cache) = workshop_refresh_cache().lock() {
+            let mut cached = result.clone();
+            cached.served_from_snapshot = false;
+            *cache = Some(cached);
+        }
+    }
+
+    pub fn invalidate_snapshot() {
+        if let Ok(mut cache) = workshop_refresh_cache().lock() {
+            *cache = None;
+        }
+    }
+
     fn truthy_value(value: &Value) -> bool {
         match value {
             Value::Bool(flag) => *flag,
@@ -411,14 +443,26 @@ impl WorkshopService {
             }
         }
 
-        Ok(WorkshopRefreshResult {
+        let result = WorkshopRefreshResult {
             catalog_entries: assessed,
             library_refresh_required: true,
+            served_from_snapshot: false,
+        };
+
+        Self::store_refresh_cache(&result);
+
+        Ok(result)
+    }
+
+    pub fn load_catalog_snapshot() -> Result<WorkshopRefreshResult, String> {
+        Self::cached_refresh().ok_or_else(|| {
+            "Workshop snapshot is not warm yet; a catalog refresh is required".to_string()
         })
     }
 
     pub fn inspect_item(workshop_id: &str) -> Result<WorkshopInspection, String> {
-        let entry = Self::refresh_catalog()?
+        let entry = Self::load_catalog_snapshot()
+            .or_else(|_| Self::refresh_catalog())?
             .catalog_entries
             .into_iter()
             .find(|entry| entry.entry.workshop_id.to_string() == workshop_id)
@@ -443,10 +487,30 @@ mod tests {
         let result = WorkshopRefreshResult {
             catalog_entries: Vec::new(),
             library_refresh_required: true,
+            served_from_snapshot: false,
         };
 
         assert!(result.library_refresh_required);
         assert_eq!(result.catalog_entries.len(), 0);
+    }
+
+    #[test]
+    fn workshop_snapshot_cache_roundtrip_marks_snapshot_reads() {
+        WorkshopService::invalidate_snapshot();
+
+        assert!(WorkshopService::load_catalog_snapshot().is_err());
+
+        WorkshopService::store_refresh_cache(&WorkshopRefreshResult {
+            catalog_entries: Vec::new(),
+            library_refresh_required: false,
+            served_from_snapshot: false,
+        });
+
+        let snapshot = WorkshopService::load_catalog_snapshot().unwrap();
+        assert!(snapshot.served_from_snapshot);
+        assert!(!snapshot.library_refresh_required);
+
+        WorkshopService::invalidate_snapshot();
     }
 
     #[test]

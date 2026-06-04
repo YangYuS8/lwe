@@ -171,3 +171,53 @@ jobs:
             packaging/aur/lwe \
             lwe \
             "chore: release lwe ${GITHUB_REF_NAME#v}"
+
+  publish-archlinuxcn-stable:
+    runs-on: ubuntu-latest
+    needs:
+      - build-release
+      - publish-release
+
+    steps:
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git
+
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Prepare ArchLinuxCN stable package PR payload
+        shell: bash
+        run: |
+          release_version="${{ needs.build-release.outputs.version }}"
+          body_file="dist/archlinuxcn-lwe-pr.md"
+
+          scripts/prepare-archlinuxcn-package.sh stable "${release_version}" dist/archlinuxcn
+
+          cat > "${body_file}" <<EOF
+          Update LWE stable package metadata for ${{ github.ref_name }}.
+
+          This PR payload was generated from ${{ github.repository }}@${{ github.sha }}.
+          EOF
+
+      - name: Open ArchLinuxCN stable package PR
+        env:
+          ARCHLINUXCN_GITHUB_TOKEN: ${{ secrets.ARCHLINUXCN_GITHUB_TOKEN }}
+          ARCHLINUXCN_REPO_FORK: ${{ secrets.ARCHLINUXCN_REPO_FORK }}
+          ARCHLINUXCN_REPO_UPSTREAM: ${{ vars.ARCHLINUXCN_REPO_UPSTREAM }}
+          ARCHLINUXCN_REPO_BASE_BRANCH: ${{ vars.ARCHLINUXCN_REPO_BASE_BRANCH }}
+        shell: bash
+        run: |
+          if [ -z "${ARCHLINUXCN_GITHUB_TOKEN:-}" ] || [ -z "${ARCHLINUXCN_REPO_FORK:-}" ]; then
+            echo "ARCHLINUXCN_GITHUB_TOKEN or ARCHLINUXCN_REPO_FORK is not configured; skipping ArchLinuxCN stable package PR."
+            exit 0
+          fi
+
+          scripts/open-archlinuxcn-pr.sh \
+            dist/archlinuxcn \
+            lwe \
+            "lwe-${{ needs.build-release.outputs.version }}" \
+            "lwe: update to ${{ needs.build-release.outputs.version }}" \
+            "lwe: update to ${{ needs.build-release.outputs.version }}" \
+            dist/archlinuxcn-lwe-pr.md

@@ -70,6 +70,7 @@ pub fn assemble_library_page(
         monitor_discovery_issue: desktop_status.monitor_discovery_issue,
         desktop_assignment_issue: desktop_status.desktop_assignment_issue,
         desktop_assignments_available: desktop_status.desktop_assignments_available,
+        served_from_snapshot: result.served_from_snapshot,
         stale,
     }
 }
@@ -144,6 +145,7 @@ mod tests {
             LibraryProjection {
                 entries: vec![assessed_entry()],
                 source_catalog_count: 1,
+                served_from_snapshot: true,
             },
             &DesktopPageResult {
                 monitors: Vec::new(),
@@ -165,6 +167,7 @@ mod tests {
         assert_eq!(snapshot.items[0].id, "video-7");
         assert_eq!(snapshot.items[0].title, "Forest Video");
         assert!(!snapshot.desktop_assignments_available);
+        assert!(snapshot.served_from_snapshot);
         assert_eq!(
             snapshot.desktop_assignment_issue.as_deref(),
             Some("Desktop persistence is not available yet")
@@ -185,6 +188,7 @@ mod tests {
             LibraryProjection {
                 entries: vec![assessed_entry()],
                 source_catalog_count: 1,
+                served_from_snapshot: false,
             },
             &DesktopPageResult {
                 monitors: Vec::new(),
@@ -223,6 +227,7 @@ mod tests {
                     },
                 )],
                 source_catalog_count: 1,
+                served_from_snapshot: false,
             },
             &desktop_page(),
         );

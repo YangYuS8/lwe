@@ -17,7 +17,9 @@ fn steam_openurl(workshop_id: &str) -> String {
 
 #[tauri::command]
 pub fn load_workshop_page() -> Result<WorkshopPageSnapshot, String> {
-    Ok(assemble_workshop_page(&WorkshopService::refresh_catalog()?))
+    let result =
+        WorkshopService::load_catalog_snapshot().or_else(|_| WorkshopService::refresh_catalog())?;
+    Ok(assemble_workshop_page(&result))
 }
 
 #[tauri::command]

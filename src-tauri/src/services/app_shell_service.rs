@@ -171,6 +171,7 @@ mod tests {
                         ),
                     ],
                     library_refresh_required: true,
+                    served_from_snapshot: false,
                 },
                 ObservedCount::Known(1),
             ));
@@ -186,6 +187,7 @@ mod tests {
             WorkshopRefreshResult {
                 catalog_entries: Vec::new(),
                 library_refresh_required: false,
+                served_from_snapshot: true,
             },
             ObservedCount::Known(3),
         );
@@ -211,6 +213,7 @@ mod tests {
                     },
                 )],
                 library_refresh_required: true,
+                served_from_snapshot: false,
             },
             ObservedCount::Unknown,
         );

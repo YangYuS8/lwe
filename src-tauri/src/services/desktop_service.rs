@@ -59,14 +59,16 @@ impl DesktopService {
 
     pub fn load_page() -> Result<DesktopPageResult, String> {
         Self::load_page_with_projection_and_monitors(
-            LibraryService::load_projection(),
+            LibraryService::load_projection_snapshot()
+                .or_else(|_| LibraryService::load_projection()),
             MonitorService::list_monitors(),
         )
     }
 
     pub fn restore_saved_assignments() -> Result<(), String> {
         let page = Self::load_page_with_projection_and_monitors(
-            LibraryService::load_projection(),
+            LibraryService::load_projection_snapshot()
+                .or_else(|_| LibraryService::load_projection()),
             MonitorService::list_monitors_uncached(),
         )?;
         let issues = Self::restore_saved_assignments_with(&page, |monitor, item_id| {
@@ -901,7 +903,9 @@ mod tests {
     }
 
     fn real_supported_library_item_id() -> Option<String> {
-        let projection = LibraryService::load_projection().ok()?;
+        let projection = LibraryService::load_projection_snapshot()
+            .or_else(|_| LibraryService::load_projection())
+            .ok()?;
 
         projection.entries.into_iter().find_map(|entry| {
             if entry.entry.project_type != WorkshopProjectType::Video {
@@ -979,6 +983,7 @@ mod tests {
             Ok(LibraryProjection {
                 entries: vec![library_item("scene-7", "Forest Scene")],
                 source_catalog_count: 1,
+                served_from_snapshot: false,
             }),
         );
 
@@ -1042,6 +1047,7 @@ mod tests {
             Ok(LibraryProjection {
                 entries: vec![library_item("scene-7", "Forest Scene")],
                 source_catalog_count: 1,
+                served_from_snapshot: false,
             }),
         );
 
@@ -1237,6 +1243,7 @@ mod tests {
             Ok(LibraryProjection {
                 entries: vec![],
                 source_catalog_count: 0,
+                served_from_snapshot: false,
             }),
         );
         result.runtime_issue =

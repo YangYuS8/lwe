@@ -23,6 +23,7 @@ pub struct LibraryService;
 impl LibraryService {
     pub fn projection_from_refresh(refresh: WorkshopRefreshResult) -> LibraryProjection {
         let source_catalog_count = refresh.catalog_entries.len();
+        let served_from_snapshot = refresh.served_from_snapshot;
         let entries = refresh
             .catalog_entries
             .into_iter()
@@ -32,12 +33,19 @@ impl LibraryService {
         LibraryProjection {
             entries,
             source_catalog_count,
+            served_from_snapshot,
         }
     }
 
     pub fn load_projection() -> Result<LibraryProjection, String> {
         Ok(Self::projection_from_refresh(
             WorkshopService::refresh_catalog()?,
+        ))
+    }
+
+    pub fn load_projection_snapshot() -> Result<LibraryProjection, String> {
+        Ok(Self::projection_from_refresh(
+            WorkshopService::load_catalog_snapshot()?,
         ))
     }
 
@@ -98,6 +106,7 @@ mod tests {
         let result = LibraryProjection {
             entries: Vec::new(),
             source_catalog_count: 0,
+            served_from_snapshot: false,
         };
 
         assert!(result.entries.is_empty());
@@ -223,6 +232,7 @@ mod tests {
             &LibraryProjection {
                 entries: vec![entry],
                 source_catalog_count: 1,
+                served_from_snapshot: false,
             },
             "video-7",
         )

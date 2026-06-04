@@ -181,40 +181,6 @@ $:
             tag: $PRERELEASE_TAG
             attachments:
               - dist/*
-        - name: prepare ArchLinuxCN development package PR payload
-          script: |
-            short_sha="$(cat .cnb-short-sha)"
-            base_version="$(sed -n 's/^version = "\([^"]\+\)"$/\1/p' Cargo.toml | head -n 1)"
-            archlinuxcn_pkgver="${base_version}.beta.${CNB_BUILD_ID}.${short_sha}"
-            full_sha="$(git rev-parse HEAD)"
-
-            printf '%s' "${archlinuxcn_pkgver}" > .cnb-archlinuxcn-pkgver
-            LWE_ARCHLINUXCN_SOURCE_COMMIT="${full_sha}" \
-              scripts/prepare-archlinuxcn-package.sh git "${archlinuxcn_pkgver}" dist/archlinuxcn
-            tar -C dist/archlinuxcn -czf dist/archlinuxcn-lwe-git-pr.tar.gz archlinuxcn/lwe-git
-        - name: upload ArchLinuxCN development PR payload
-          image: cnbcool/attachments:latest
-          settings:
-            tag: $PRERELEASE_TAG
-            attachments:
-              - dist/archlinuxcn-lwe-git-pr.tar.gz
-        - name: optionally open ArchLinuxCN development package PR
-          script: |
-            archlinuxcn_pkgver="$(cat .cnb-archlinuxcn-pkgver)"
-            body_file="dist/archlinuxcn-lwe-git-pr.md"
-            cat > "${body_file}" <<EOF
-            Update LWE development package metadata for CNB prerelease ${PRERELEASE_TAG}.
-
-            This PR payload was generated from ${CNB_REPO_SLUG}@${CNB_COMMIT}.
-            EOF
-
-            scripts/open-archlinuxcn-pr.sh \
-              dist/archlinuxcn \
-              lwe-git \
-              "lwe-git-${archlinuxcn_pkgver}" \
-              "lwe-git: update to ${archlinuxcn_pkgver}" \
-              "lwe-git: update to ${archlinuxcn_pkgver}" \
-              "${body_file}"
 
   tag_push:
     - name: release-stable
@@ -317,34 +283,3 @@ $:
             tag: $CNB_BRANCH
             attachments:
               - dist/*
-        - name: prepare ArchLinuxCN stable package PR payload
-          if: test -f .cnb-release-version
-          script: |
-            release_version="$(cat .cnb-release-version)"
-            scripts/prepare-archlinuxcn-package.sh stable "${release_version}" dist/archlinuxcn
-            tar -C dist/archlinuxcn -czf dist/archlinuxcn-lwe-pr.tar.gz archlinuxcn/lwe
-        - name: upload ArchLinuxCN stable PR payload
-          if: test -f .cnb-release-version
-          image: cnbcool/attachments:latest
-          settings:
-            tag: $CNB_BRANCH
-            attachments:
-              - dist/archlinuxcn-lwe-pr.tar.gz
-        - name: optionally open ArchLinuxCN stable package PR
-          if: test -f .cnb-release-version
-          script: |
-            release_version="$(cat .cnb-release-version)"
-            body_file="dist/archlinuxcn-lwe-pr.md"
-            cat > "${body_file}" <<EOF
-            Update LWE stable package metadata for ${CNB_BRANCH}.
-
-            This PR payload was generated from ${CNB_REPO_SLUG}@${CNB_COMMIT}.
-            EOF
-
-            scripts/open-archlinuxcn-pr.sh \
-              dist/archlinuxcn \
-              lwe \
-              "lwe-${release_version}" \
-              "lwe: update to ${release_version}" \
-              "lwe: update to ${release_version}" \
-              "${body_file}"

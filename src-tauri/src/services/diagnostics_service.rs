@@ -69,6 +69,14 @@ impl DiagnosticsService {
         match &workshop {
             Ok(refresh) => {
                 lines.push(format!(
+                    "workshop_snapshot_source: {}",
+                    if refresh.served_from_snapshot {
+                        "warm_snapshot"
+                    } else {
+                        "full_refresh"
+                    }
+                ));
+                lines.push(format!(
                     "workshop_catalog_items: {}",
                     refresh.catalog_entries.len()
                 ));
@@ -131,6 +139,14 @@ impl DiagnosticsService {
         lines.push("Library".to_string());
         match &library {
             Ok(projection) => {
+                lines.push(format!(
+                    "library_projection_source: {}",
+                    if projection.served_from_snapshot {
+                        "warm_snapshot"
+                    } else {
+                        "full_refresh"
+                    }
+                ));
                 lines.push(format!("library_items: {}", projection.entries.len()));
                 lines.push(format!(
                     "source_catalog_items: {}",
@@ -309,5 +325,21 @@ mod tests {
         let line = format!("steam_web_api_key: {}", redacted.steam_key_state);
         assert!(line.contains("redacted"));
         assert!(!line.contains("secret-api-key"));
+    }
+
+    #[test]
+    fn diagnostics_format_counts_keeps_sorted_key_value_shape() {
+        let line = format_counts(
+            "library_projection_source",
+            BTreeMap::from([
+                ("full_refresh".to_string(), 1),
+                ("warm_snapshot".to_string(), 2),
+            ]),
+        );
+
+        assert_eq!(
+            line,
+            "library_projection_source: full_refresh=1, warm_snapshot=2"
+        );
     }
 }

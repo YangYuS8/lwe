@@ -107,6 +107,7 @@ mod tests {
         let outcome = assemble_workshop_refresh_outcome(&WorkshopRefreshResult {
             catalog_entries: Vec::new(),
             library_refresh_required: true,
+            served_from_snapshot: false,
         });
 
         assert_eq!(outcome.invalidations.len(), 1);

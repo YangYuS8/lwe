@@ -51,6 +51,7 @@ pub fn assemble_workshop_page(result: &WorkshopRefreshResult) -> WorkshopPageSna
             .map(workshop_summary_from_entry)
             .collect(),
         selected_item_id: None,
+        served_from_snapshot: result.served_from_snapshot,
         stale: false,
     }
 }
@@ -65,9 +66,11 @@ mod tests {
         let result = WorkshopRefreshResult {
             catalog_entries: Vec::new(),
             library_refresh_required: true,
+            served_from_snapshot: true,
         };
 
         let snapshot = assemble_workshop_page(&result);
         assert!(snapshot.items.is_empty());
+        assert!(snapshot.served_from_snapshot);
     }
 }

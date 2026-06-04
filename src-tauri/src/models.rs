@@ -164,6 +164,7 @@ pub struct WorkshopItemSummary {
 pub struct WorkshopPageSnapshot {
     pub items: Vec<WorkshopItemSummary>,
     pub selected_item_id: Option<String>,
+    pub served_from_snapshot: bool,
     pub stale: bool,
 }
 
@@ -207,6 +208,7 @@ pub struct LibraryPageSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub desktop_assignment_issue: Option<String>,
     pub desktop_assignments_available: bool,
+    pub served_from_snapshot: bool,
     pub stale: bool,
 }
 
@@ -470,6 +472,38 @@ mod tests {
             "Steam is required for Workshop features"
         );
         assert_eq!(snapshot_value["stale"], false);
+    }
+
+    #[test]
+    fn workshop_page_snapshot_serializes_snapshot_source_flag() {
+        let snapshot = WorkshopPageSnapshot {
+            items: Vec::new(),
+            selected_item_id: None,
+            served_from_snapshot: true,
+            stale: false,
+        };
+
+        let value = serde_json::to_value(&snapshot).unwrap();
+
+        assert_eq!(value["servedFromSnapshot"], true);
+    }
+
+    #[test]
+    fn library_page_snapshot_serializes_snapshot_source_flag() {
+        let snapshot = LibraryPageSnapshot {
+            items: Vec::new(),
+            selected_item_id: None,
+            monitors_available: true,
+            monitor_discovery_issue: None,
+            desktop_assignment_issue: None,
+            desktop_assignments_available: true,
+            served_from_snapshot: false,
+            stale: false,
+        };
+
+        let value = serde_json::to_value(&snapshot).unwrap();
+
+        assert_eq!(value["servedFromSnapshot"], false);
     }
 
     #[test]
