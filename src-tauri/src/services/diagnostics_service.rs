@@ -10,6 +10,7 @@ use crate::services::desktop_service::DesktopService;
 use crate::services::library_service::LibraryService;
 use crate::services::settings_persistence_service::SettingsPersistenceService;
 use crate::services::settings_service::steam_status_with_discovery;
+use crate::services::wayland_capability_service::WaylandCapabilityService;
 use crate::services::workshop_service::WorkshopService;
 
 pub struct DiagnosticsService;
@@ -20,6 +21,7 @@ impl DiagnosticsService {
         let desktop = DesktopService::load_page();
         let workshop = WorkshopService::refresh_catalog();
         let library = LibraryService::load_projection();
+        let wayland = WaylandCapabilityService::load_report();
         let steam = SteamLibrary::try_discover();
         let (_steam_required, steam_status) = steam_status_with_discovery(steam);
 
@@ -94,6 +96,36 @@ impl DiagnosticsService {
         lines.push(String::new());
 
         lines.push("Desktop runtime".to_string());
+        lines.push(format!(
+            "wayland_session_available: {}",
+            wayland.session_available
+        ));
+        lines.push(format!(
+            "wayland_display_connectable: {}",
+            wayland.display_connectable
+        ));
+        lines.push(format!(
+            "wayland_protocol_wl_compositor: {}",
+            wayland.wl_compositor
+        ));
+        lines.push(format!("wayland_protocol_wl_output: {}", wayland.wl_output));
+        lines.push(format!("wayland_output_count: {}", wayland.output_count));
+        lines.push(format!(
+            "wayland_protocol_zwlr_layer_shell_v1: {}",
+            wayland.zwlr_layer_shell_v1
+        ));
+        lines.push(format!(
+            "dynamic_wallpaper_runtime_support: {}",
+            wayland.runtime_support.as_str()
+        ));
+        if let Some(reason) = &wayland.unsupported_reason {
+            lines.push(format!(
+                "dynamic_wallpaper_runtime_unsupported_reason: {reason}"
+            ));
+        }
+        if let Some(error) = &wayland.connection_error {
+            lines.push(format!("wayland_connection_error: {error}"));
+        }
         match &desktop {
             Ok(page) => {
                 lines.push(format!(

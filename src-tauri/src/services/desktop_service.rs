@@ -16,6 +16,7 @@ use crate::results::monitor_discovery::MonitorDiscoveryResult;
 use crate::services::desktop_persistence_service::DesktopPersistenceService;
 use crate::services::library_service::LibraryService;
 use crate::services::monitor_service::MonitorService;
+use crate::services::wayland_capability_service::WaylandCapabilityService;
 
 pub(crate) const LIBRARY_RESOLUTION_ISSUE_PREFIX: &str =
     "Unable to resolve desktop items against the current Library snapshot:";
@@ -496,6 +497,8 @@ impl DesktopService {
         monitor: &crate::services::monitor_service::MonitorDescriptor,
         item_id: &str,
     ) -> Result<(), String> {
+        Self::ensure_real_backend_supported()?;
+
         let path = Self::resolve_real_apply_path(item_id)?;
         let mut backend_guard = Self::ensure_running_apply_backend()?;
         let backend = backend_guard
@@ -511,6 +514,16 @@ impl DesktopService {
             })
             .map_err(|error| format!("Failed to send real desktop apply command: {error}"))?;
         Self::wait_for_apply(backend, &monitor.backend_output_id, &path)
+    }
+
+    fn ensure_real_backend_supported() -> Result<(), String> {
+        WaylandCapabilityService::ensure_dynamic_wallpaper_supported()
+            .map(|_| ())
+            .map_err(|reason| {
+                format!(
+                    "{REAL_APPLY_BACKEND} is unavailable because required Wayland runtime capabilities are missing: {reason}"
+                )
+            })
     }
 
     fn resolve_real_apply_path(item_id: &str) -> Result<PathBuf, String> {
@@ -1205,6 +1218,17 @@ mod tests {
         );
 
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn desktop_apply_flow_backend_capability_error_names_wayland_requirement() {
+        let reason = format!(
+            "{REAL_APPLY_BACKEND} is unavailable because required Wayland runtime capabilities are missing: Wayland compositor does not expose zwlr_layer_shell_v1, which LWE needs for dynamic wallpaper surfaces"
+        );
+
+        assert!(reason.contains(REAL_APPLY_BACKEND));
+        assert!(reason.contains("required Wayland runtime capabilities"));
+        assert!(reason.contains("zwlr_layer_shell_v1"));
     }
 
     #[test]
