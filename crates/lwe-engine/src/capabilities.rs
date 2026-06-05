@@ -40,29 +40,23 @@ pub struct WaylandCapabilityReport {
 
 impl WaylandCapabilityReport {
     pub fn unsupported_without_session() -> Self {
-        Self::unsupported(
-            false,
-            false,
-            false,
-            false,
-            false,
-            0,
+        Self::from_unsupported_reason(
             "Wayland session is unavailable because WAYLAND_DISPLAY is not set",
-            None,
         )
     }
 
     pub fn unsupported_connection_error(session_available: bool, error: String) -> Self {
-        Self::unsupported(
+        Self {
             session_available,
-            false,
-            false,
-            false,
-            false,
-            0,
-            "Wayland display connection failed",
-            Some(error),
-        )
+            display_connectable: false,
+            wl_compositor: false,
+            wl_output: false,
+            zwlr_layer_shell_v1: false,
+            output_count: 0,
+            runtime_support: WaylandRuntimeSupport::Unsupported,
+            unsupported_reason: Some("Wayland display connection failed".to_string()),
+            connection_error: Some(error),
+        }
     }
 
     pub fn from_protocols(
@@ -99,26 +93,17 @@ impl WaylandCapabilityReport {
         }
     }
 
-    fn unsupported(
-        session_available: bool,
-        display_connectable: bool,
-        wl_compositor: bool,
-        wl_output: bool,
-        zwlr_layer_shell_v1: bool,
-        output_count: usize,
-        reason: &str,
-        connection_error: Option<String>,
-    ) -> Self {
+    fn from_unsupported_reason(reason: &str) -> Self {
         Self {
-            session_available,
-            display_connectable,
-            wl_compositor,
-            wl_output,
-            zwlr_layer_shell_v1,
-            output_count,
+            session_available: false,
+            display_connectable: false,
+            wl_compositor: false,
+            wl_output: false,
+            zwlr_layer_shell_v1: false,
+            output_count: 0,
             runtime_support: WaylandRuntimeSupport::Unsupported,
             unsupported_reason: Some(reason.to_string()),
-            connection_error,
+            connection_error: None,
         }
     }
 
