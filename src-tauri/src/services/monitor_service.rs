@@ -2,7 +2,9 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::results::monitor_discovery::MonitorDiscoveryResult;
-use crate::services::backends::monitor_backend::{BackendMonitorDiscovery, MonitorBackend};
+use crate::services::backends::monitor_backend::{
+    BackendMonitorDiscovery, MonitorBackend, OutputDiscoverySource,
+};
 use crate::services::backends::niri_monitor_backend::NiriMonitorBackend;
 
 const MONITOR_CACHE_TTL: Duration = Duration::from_millis(750);
@@ -30,6 +32,10 @@ pub struct MonitorDescriptor {
 pub struct MonitorService;
 
 impl MonitorService {
+    pub fn output_discovery_source() -> OutputDiscoverySource {
+        NiriMonitorBackend.output_discovery_source()
+    }
+
     pub fn list_monitors() -> MonitorDiscoveryResult {
         if let Some(result) = Self::cached_monitors() {
             return result;
@@ -123,6 +129,10 @@ mod tests {
     struct StaticMonitorBackend(BackendMonitorDiscovery);
 
     impl MonitorBackend for StaticMonitorBackend {
+        fn output_discovery_source(&self) -> OutputDiscoverySource {
+            OutputDiscoverySource::NiriAugmented
+        }
+
         fn list_monitors(&self) -> BackendMonitorDiscovery {
             match &self.0 {
                 BackendMonitorDiscovery::Known(monitors) => {
@@ -170,6 +180,14 @@ mod tests {
         });
 
         assert!(MonitorService::cached_monitors().is_none());
+    }
+
+    #[test]
+    fn monitor_service_reports_output_discovery_source() {
+        assert_eq!(
+            MonitorService::output_discovery_source().as_str(),
+            "niri_augmented"
+        );
     }
 
     #[test]

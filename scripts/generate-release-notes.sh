@@ -96,7 +96,6 @@ write_category() {
 }
 
 {
-	printf '# %s\n\n' "${release_name}"
 	printf 'Automated release notes generated from commits'
 	if [ -n "${compare_base}" ]; then
 		printf ' since `%s`' "${compare_base}"

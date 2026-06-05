@@ -3,12 +3,16 @@ use std::process::Command;
 use serde_json::Value;
 
 use crate::services::backends::monitor_backend::{
-    BackendMonitorDescriptor, BackendMonitorDiscovery, MonitorBackend,
+    BackendMonitorDescriptor, BackendMonitorDiscovery, MonitorBackend, OutputDiscoverySource,
 };
 
 pub struct NiriMonitorBackend;
 
 impl MonitorBackend for NiriMonitorBackend {
+    fn output_discovery_source(&self) -> OutputDiscoverySource {
+        OutputDiscoverySource::NiriAugmented
+    }
+
     fn list_monitors(&self) -> BackendMonitorDiscovery {
         let output = match Command::new("niri").args(["msg", "-j", "outputs"]).output() {
             Ok(output) => output,

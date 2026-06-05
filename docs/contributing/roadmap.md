@@ -1,6 +1,6 @@
 # v1 version roadmap
 
-This page captures the maintained development direction from the released v0.9.8 baseline toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
+This page captures the maintained development direction from the released v0.9.9 baseline toward LWE v1. Keep it current: remove or collapse obsolete version sections after release, and update the page when product scope, verified runtime support, or release priorities change.
 
 ## v1 target
 
@@ -28,7 +28,7 @@ For v1, LWE targets:
 | v0.9.6 | Preview performance | Released: Library and Workshop card grids use bounded thumbnail assets instead of raw preview media. |
 | v0.9.7 | Workshop browsing polish | Released: Workshop navigation, cached search restoration, and sparse result layouts are smoother. |
 | v0.9.8 | Background power profile | Released: runtime and background refresh paths reduce unnecessary work, reuse warm snapshots, and expose lightweight snapshot diagnostics. |
-| v0.9.9 | Wayland capability groundwork | Wayland protocol capabilities decide dynamic wallpaper availability, with graceful fallback when required protocols are missing. |
+| v0.9.9 | Wayland capability groundwork | Released: Wayland protocol capabilities decide dynamic wallpaper availability, with graceful fallback when required protocols are missing. |
 | v1.0.0-rc.1 | First release candidate | Scope is frozen and validated end-to-end. |
 | v1.0.0-rc.2 | Optional blocker-fix candidate | Only if rc.1 finds release blockers. |
 | v1.0.0 | Stable v1 | Honest, reliable video-first release. |
@@ -315,6 +315,8 @@ Must not claim:
 - that upstream GTK/WebKit/Tauri vulnerabilities are fixed locally unless the dependency graph actually moves to fixed versions.
 
 ## v0.9.9: Wayland capability groundwork
+
+Status: completed for the v0.9.9 release. The release adds a lightweight Wayland capability report, runtime gating before dynamic wallpaper startup, an explicit output-discovery source boundary that keeps `niri` as the augmented verified path, diagnostics for protocol support and output discovery source, and documentation for app-shell-only WebKitGTK startup workarounds.
 
 Theme: make future desktop compatibility Wayland capability-driven instead of desktop-environment-specific.
 

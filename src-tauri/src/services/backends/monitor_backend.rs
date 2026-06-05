@@ -6,12 +6,27 @@ pub struct BackendMonitorDescriptor {
     pub resolution: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputDiscoverySource {
+    NiriAugmented,
+}
+
+impl OutputDiscoverySource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NiriAugmented => "niri_augmented",
+        }
+    }
+}
+
 pub enum BackendMonitorDiscovery {
     Known(Vec<BackendMonitorDescriptor>),
     Unavailable { reason: String },
 }
 
 pub trait MonitorBackend {
+    fn output_discovery_source(&self) -> OutputDiscoverySource;
+
     fn list_monitors(&self) -> BackendMonitorDiscovery;
 }
 
@@ -32,5 +47,13 @@ mod tests {
         assert_eq!(monitor.backend_output_id, "eDP-1");
         assert_eq!(monitor.name, "Built-in");
         assert_eq!(monitor.resolution, "2160x1440");
+    }
+
+    #[test]
+    fn output_discovery_source_has_stable_diagnostic_label() {
+        assert_eq!(
+            OutputDiscoverySource::NiriAugmented.as_str(),
+            "niri_augmented"
+        );
     }
 }

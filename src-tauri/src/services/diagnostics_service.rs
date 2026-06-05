@@ -8,6 +8,7 @@ use crate::policies::shared::compatibility_policy::CompatibilityLevel;
 use crate::results::settings_persistence::{PersistedSettings, SettingsPersistenceLoad};
 use crate::services::desktop_service::DesktopService;
 use crate::services::library_service::LibraryService;
+use crate::services::monitor_service::MonitorService;
 use crate::services::settings_persistence_service::SettingsPersistenceService;
 use crate::services::settings_service::steam_status_with_discovery;
 use crate::services::wayland_capability_service::WaylandCapabilityService;
@@ -96,6 +97,10 @@ impl DiagnosticsService {
         lines.push(String::new());
 
         lines.push("Desktop runtime".to_string());
+        lines.push(format!(
+            "output_discovery_source: {}",
+            MonitorService::output_discovery_source().as_str()
+        ));
         lines.push(format!(
             "wayland_session_available: {}",
             wayland.session_available
