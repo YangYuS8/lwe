@@ -35,7 +35,7 @@
 
 ## 应用壁纸后桌面没有变化
 
-先确认你在受支持或已知可用的会话中测试。当前已验证环境是 Wayland + `niri`。
+先确认你在受支持或已知可用的会话中测试。当前已验证环境是 Wayland + `niri`。LWE 的动态壁纸运行时仅面向 Wayland，并需要 `wl_compositor`、`wl_output`、`zwlr_layer_shell_v1` 等协议能力；它不会回退到 X11 运行时。
 
 然后尝试：
 
@@ -53,11 +53,21 @@
 - 按显示器清除；
 - 启动时恢复。
 
-常见底层原因包括缺少 `zwlr_layer_shell_v1`、EGL 不可用、显示器/输出名称不匹配、本地视频资源缺失，或壁纸类型不受支持。
+常见底层原因包括缺少 `zwlr_layer_shell_v1`、EGL 不可用、显示器/输出名称不匹配、本地视频资源缺失，或壁纸类型不受支持。设置页诊断信息会包含 Wayland 能力报告，可在运行时启动前显示合成器是否暴露所需协议。
 
 当错误提到输出名称不匹配时，请刷新 Desktop 页面，重新选择显示器，并在报告问题时附上请求的输出名称和运行时列出的输出名称。
 
 如果问题只在其他合成器上出现，报告问题时请附上合成器、会话类型和显示器布局。
+
+## 应用壳在 GNOME/Mutter Wayland 上崩溃
+
+某些 GNOME/Mutter + WebKitGTK 组合可能在应用壳启动阶段遇到 Wayland 显式同步错误，例如 `Explicit Sync only supported on dmabuf buffers`。作为应用壳 workaround，可以尝试这样启动 LWE：
+
+```bash
+WEBKIT_DISABLE_DMABUF_RENDERER=1 lwe-shell
+```
+
+这个 workaround 只影响 Tauri/WebKit 应用窗口，不代表 GNOME/Mutter 支持 LWE 的动态壁纸运行时。壁纸运行时仍依赖 Wayland 协议能力，尤其是 `zwlr_layer_shell_v1`；缺少必要协议时，LWE 会优雅降级。
 
 ## AppImage 无法启动
 

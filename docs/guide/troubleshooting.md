@@ -35,7 +35,7 @@ Video wallpapers are the first-release runtime focus. Do not assume every Wallpa
 
 ## Applying a wallpaper does not change the desktop
 
-Confirm that you are testing on a supported or known-good session. The currently verified environment is Wayland with `niri`.
+Confirm that you are testing on a supported or known-good session. The currently verified environment is Wayland with `niri`. LWE's dynamic wallpaper runtime is Wayland-only and requires protocol capabilities such as `wl_compositor`, `wl_output`, and `zwlr_layer_shell_v1`; it does not fall back to an X11 runtime.
 
 Then try:
 
@@ -53,11 +53,21 @@ When launching from a terminal, runtime errors are most useful when they name on
 - per-monitor clear;
 - restore on startup.
 
-Common low-level causes include missing `zwlr_layer_shell_v1`, unavailable EGL, a monitor/output name mismatch, a missing local video asset, or an unsupported wallpaper type.
+Common low-level causes include missing `zwlr_layer_shell_v1`, unavailable EGL, a monitor/output name mismatch, a missing local video asset, or an unsupported wallpaper type. The Settings diagnostics output includes a Wayland capability report that can show whether the compositor exposes the required protocols before the runtime starts.
 
 When the error mentions an output-name mismatch, refresh the Desktop page, select the monitor again, and include the requested output plus the listed runtime outputs in any issue report.
 
 If this only fails on a different compositor, document the compositor, session type, and monitor layout when reporting the issue.
+
+## The app shell crashes on GNOME/Mutter Wayland
+
+Some GNOME/Mutter + WebKitGTK combinations can fail during app shell startup with a Wayland explicit-sync error similar to `Explicit Sync only supported on dmabuf buffers`. As an app-shell workaround, try launching LWE with:
+
+```bash
+WEBKIT_DISABLE_DMABUF_RENDERER=1 lwe-shell
+```
+
+This workaround only affects the Tauri/WebKit app window. It does not mean GNOME/Mutter supports LWE's dynamic wallpaper runtime. The wallpaper runtime still depends on Wayland protocol capabilities, especially `zwlr_layer_shell_v1`, and will degrade gracefully when required protocols are unavailable.
 
 ## AppImage does not launch
 

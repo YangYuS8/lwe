@@ -52,7 +52,7 @@ LWE is desktop-app first. The intended workflow is:
 3. apply the wallpaper;
 4. clear or replace the assignment when needed.
 
-Monitor discovery and restore behavior depend on the Linux session. The verified path is Wayland with `niri`; other environments need explicit validation before they are documented as supported.
+Monitor discovery and restore behavior depend on the Linux session. The verified path is Wayland with `niri`; other environments need explicit validation before they are documented as supported. LWE does not plan X11 wallpaper runtime support for v1. Future runtime expansion is based on Wayland protocol capabilities such as `wl_output` and `zwlr_layer_shell_v1`, not desktop-environment-specific integrations.
 
 ## Settings
 
@@ -78,4 +78,5 @@ The first release does not aim to provide:
 - creator tools;
 - cloud or community systems;
 - advanced automation rules;
-- guaranteed behavior on untested compositors or desktop environments.
+- guaranteed behavior on untested compositors or desktop environments;
+- X11 wallpaper runtime support.
