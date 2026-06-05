@@ -28,6 +28,7 @@ For v1, LWE targets:
 | v0.9.6 | Preview performance | Released: Library and Workshop card grids use bounded thumbnail assets instead of raw preview media. |
 | v0.9.7 | Workshop browsing polish | Released: Workshop navigation, cached search restoration, and sparse result layouts are smoother. |
 | v0.9.8 | Background power profile | Released: runtime and background refresh paths reduce unnecessary work, reuse warm snapshots, and expose lightweight snapshot diagnostics. |
+| v0.9.9 | Wayland capability groundwork | Wayland protocol capabilities decide dynamic wallpaper availability, with graceful fallback when required protocols are missing. |
 | v1.0.0-rc.1 | First release candidate | Scope is frozen and validated end-to-end. |
 | v1.0.0-rc.2 | Optional blocker-fix candidate | Only if rc.1 finds release blockers. |
 | v1.0.0 | Stable v1 | Honest, reliable video-first release. |
@@ -312,6 +313,63 @@ Must not claim:
 - compositor support beyond the verified Wayland + `niri` path;
 - scene/web runtime support;
 - that upstream GTK/WebKit/Tauri vulnerabilities are fixed locally unless the dependency graph actually moves to fixed versions.
+
+## v0.9.9: Wayland capability groundwork
+
+Theme: make future desktop compatibility Wayland capability-driven instead of desktop-environment-specific.
+
+Problem statement:
+
+- LWE's current verified runtime path is Wayland + `niri`, but the underlying video runtime is better described as a Wayland layer-shell + EGL/mpv backend.
+- Monitor discovery currently uses `niri msg -j outputs` as the only concrete backend, which makes output availability look desktop-name-driven instead of capability-driven.
+- Other Wayland compositors may expose enough protocols to run the current lightweight runtime, but support should be decided by protocol capability and real validation, not by broad compositor claims.
+- Some environments, such as GNOME/Mutter Wayland, can run the app shell with WebKitGTK workarounds but may not expose the layer-shell protocols required for dynamic wallpapers.
+- LWE should not add X11 runtime support or heavyweight desktop-environment-specific dependencies while preparing broader Wayland compatibility.
+
+Deliverables:
+
+- Add a lightweight Wayland capability report that checks:
+  - whether a Wayland session and display connection are available;
+  - whether required globals such as `wl_compositor`, `wl_output`, and `zwlr_layer_shell_v1` are exposed;
+  - whether dynamic wallpaper runtime support is available, degraded, or unsupported;
+  - a user-readable unsupported reason when a required protocol is missing.
+- Reframe monitor discovery as output discovery:
+  - keep `niri` as an augmented output information source for the verified path;
+  - prepare the service boundary for generic Wayland output discovery where stable output identity is sufficient;
+  - avoid treating desktop environment names as primary runtime backends.
+- Gate Desktop apply/restore paths with the capability report before starting the runtime backend, returning graceful unsupported results when required Wayland protocols are unavailable.
+- Extend diagnostics with Wayland capability data:
+  - session hints;
+  - protocol availability;
+  - output discovery source;
+  - dynamic wallpaper runtime support status and unsupported reason.
+- Document the GNOME/Mutter WebKitGTK startup workaround `WEBKIT_DISABLE_DMABUF_RENDERER=1` as app-shell-only mitigation, not as wallpaper runtime support.
+- Keep support scope honest in English and Simplified Chinese docs.
+
+Implementation notes:
+
+- Keep the core lightweight: do not add desktop-environment-specific DBus/plugin integrations unless a future plan explicitly justifies them.
+- Do not plan or implement X11 wallpaper runtime support for v1.
+- Prefer a shared Wayland capability probe in `lwe-engine`, because that crate already owns the Wayland client dependencies and registry code.
+- Use compositor names only for diagnostics, known-issue hints, and manual verification records.
+- A compositor that lacks `zwlr_layer_shell_v1` should fail gracefully before runtime startup instead of attempting unreliable fallback windows.
+- The verified path remains Wayland + `niri` until other Wayland capability combinations are manually tested.
+
+Acceptance criteria:
+
+- Diagnostics show a Wayland capability report on the current device.
+- On the current verified `niri` setup, video apply, clear, restore, and monitor discovery still work.
+- When required Wayland protocols are unavailable, Desktop apply/restore returns a clear unsupported reason before starting the wallpaper runtime.
+- Documentation distinguishes app shell startup workarounds from dynamic wallpaper runtime support.
+- CI covers capability-report formatting and unsupported gating without requiring a real compositor.
+
+Must not claim:
+
+- X11 runtime support;
+- GNOME/KDE/Hyprland/sway runtime support by name without explicit verification;
+- that app shell startup compatibility implies dynamic wallpaper runtime compatibility;
+- scene/web runtime support;
+- that every Wayland compositor exposing layer-shell is automatically verified.
 
 ## v1.0.0-rc.1: first release candidate
 
