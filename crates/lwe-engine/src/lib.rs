@@ -17,6 +17,7 @@
 //!     └── OutputManager (output tracking)
 //! ```
 
+pub mod capabilities;
 pub mod egl;
 pub mod engine;
 pub mod frame_timing;
@@ -24,6 +25,9 @@ pub mod mpv;
 pub mod wayland;
 
 // Re-exports - Engine API
+pub use capabilities::{
+    WaylandCapabilityReport, WaylandRuntimeSupport, probe_wayland_capabilities,
+};
 pub use engine::{
     EngineCommand, EngineConfig, EngineEvent, EngineHandle, EngineStatus, WallpaperSession,
     spawn_engine,

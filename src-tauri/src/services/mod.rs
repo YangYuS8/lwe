@@ -9,4 +9,5 @@ pub mod library_service;
 pub mod monitor_service;
 pub mod settings_persistence_service;
 pub mod settings_service;
+pub mod wayland_capability_service;
 pub mod workshop_service;
