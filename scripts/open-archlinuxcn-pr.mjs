@@ -41,28 +41,59 @@ async function githubRequest(method, path, payload) {
   return data;
 }
 
-const query = new URLSearchParams({
-  state: 'open',
-  head: headRef,
-  base: baseBranch
-});
+function manualPullRequestUrl() {
+  const [forkOwner] = headRef.split(':')[0].split('/');
+  const headBranch = headRef.split(':')[1];
 
-const existingPulls = await githubRequest('GET', `/repos/${upstream}/pulls?${query}`);
+  if (!forkOwner || !headBranch) {
+    return `https://github.com/${upstream}/pulls`;
+  }
 
-if (existingPulls.length > 0) {
-  const pull = existingPulls[0];
-  const updated = await githubRequest('PATCH', `/repos/${upstream}/pulls/${pull.number}`, {
+  const query = new URLSearchParams({
+    quick_pull: '1',
     title,
-    body
-  });
-  console.log(`Updated ArchLinuxCN pull request: ${updated.html_url}`);
-} else {
-  const created = await githubRequest('POST', `/repos/${upstream}/pulls`, {
-    title,
-    head: headRef,
-    base: baseBranch,
     body,
-    maintainer_can_modify: true
+    labels: '',
+    template: '',
+    base: `${upstream.split('/')[0]}:${baseBranch}`,
+    head: `${forkOwner}:${headBranch}`
   });
-  console.log(`Created ArchLinuxCN pull request: ${created.html_url}`);
+
+  return `https://github.com/${upstream}/compare/${baseBranch}...${forkOwner}:${headBranch}?${query}`;
+}
+
+try {
+  const query = new URLSearchParams({
+    state: 'open',
+    head: headRef,
+    base: baseBranch
+  });
+  const existingPulls = await githubRequest('GET', `/repos/${upstream}/pulls?${query}`);
+
+  if (existingPulls.length > 0) {
+    const pull = existingPulls[0];
+    const updated = await githubRequest('PATCH', `/repos/${upstream}/pulls/${pull.number}`, {
+      title,
+      body
+    });
+    console.log(`Updated ArchLinuxCN pull request: ${updated.html_url}`);
+  } else {
+    const created = await githubRequest('POST', `/repos/${upstream}/pulls`, {
+      title,
+      head: headRef,
+      base: baseBranch,
+      body,
+      maintainer_can_modify: true
+    });
+    console.log(`Created ArchLinuxCN pull request: ${created.html_url}`);
+  }
+} catch (error) {
+  if (error.message.includes('failed with 403')) {
+    console.warn(
+      `ArchLinuxCN branch was pushed, but the token cannot open or update the upstream pull request: ${error.message}`
+    );
+    console.warn(`Open the pull request manually: ${manualPullRequestUrl()}`);
+  } else {
+    throw error;
+  }
 }
