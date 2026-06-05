@@ -8,6 +8,9 @@ const fsAllow = [appRoot];
 
 export default defineConfig({
   plugins: [sveltekit()],
+  optimizeDeps: {
+    include: ['@tauri-apps/api/core', '@tauri-apps/api/window']
+  },
   server: {
     fs: {
       allow: fsAllow
