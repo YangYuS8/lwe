@@ -79,7 +79,8 @@ git config user.name "${ARCHLINUXCN_GIT_USER_NAME:-cnb-bot}"
 git config user.email "${ARCHLINUXCN_GIT_USER_EMAIL:-cnb-bot@users.noreply.cnb.cool}"
 git commit -m "${commit_message}"
 
-git -c "http.extraheader=AUTHORIZATION: bearer ${ARCHLINUXCN_GITHUB_TOKEN}" \
+auth_header="$(printf 'x-access-token:%s' "${ARCHLINUXCN_GITHUB_TOKEN}" | base64 | tr -d '\n')"
+git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth_header}" \
 	push "https://github.com/${ARCHLINUXCN_REPO_FORK}.git" "HEAD:${branch_name}" --force
 
 node ../scripts/open-archlinuxcn-pr.mjs \
