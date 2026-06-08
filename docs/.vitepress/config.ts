@@ -1,9 +1,11 @@
 import { defineConfig } from 'vitepress'
 
+const base = process.env.VITEPRESS_BASE ?? '/'
+
 export default defineConfig({
   title: 'LWE',
   description: 'Linux Wallpaper Engine documentation',
-  base: '/lwe/',
+  base,
   cleanUrls: true,
   lastUpdated: true,
   metaChunk: true,

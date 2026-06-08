@@ -76,7 +76,7 @@ main:
             corepack prepare pnpm@11.1.3 --activate
             pnpm install --frozen-lockfile
         - name: build documentation
-          script: pnpm docs:build
+          script: VITEPRESS_BASE=/ pnpm docs:build
         - name: deploy to EdgeOne Pages
           script: |
             if [ -z "${EDGEONE_PAGES_API_TOKEN:-}" ]; then

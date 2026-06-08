@@ -195,8 +195,10 @@ jobs:
           aur_pkgver="${base_version}.beta.${GITHUB_RUN_NUMBER}.${short_sha}"
           sed -i "s/^pkgver=.*/pkgver=${aur_pkgver}/" packaging/aur/lwe-git/PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=1/" packaging/aur/lwe-git/PKGBUILD
-          sed -i "s/^pkgver = .*/pkgver = ${aur_pkgver}/" packaging/aur/lwe-git/.SRCINFO
-          sed -i "s/^pkgrel = .*/pkgrel = 1/" packaging/aur/lwe-git/.SRCINFO
+          sed -i "s/^license=.*/license=('Apache-2.0')/" packaging/aur/lwe-git/PKGBUILD
+          sed -i "s/^[[:space:]]*pkgver = .*/\tpkgver = ${aur_pkgver}/" packaging/aur/lwe-git/.SRCINFO
+          sed -i "s/^[[:space:]]*pkgrel = .*/\tpkgrel = 1/" packaging/aur/lwe-git/.SRCINFO
+          sed -i "s/^[[:space:]]*license = .*/\tlicense = Apache-2.0/" packaging/aur/lwe-git/.SRCINFO
 
       - name: Setup SSH configuration
         env:

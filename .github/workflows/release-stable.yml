@@ -158,9 +158,11 @@ jobs:
         run: |
           cargo_version="$(sed -n 's/^version = "\([^"]\+\)"$/\1/p' Cargo.toml | head -n 1)"
           sed -i "s/^pkgver=.*/pkgver=${cargo_version}/" packaging/aur/lwe/PKGBUILD
+          sed -i "s/^license=.*/license=('Apache-2.0')/" packaging/aur/lwe/PKGBUILD
           sed -i "s|^source=.*|source=(\"lwe_${cargo_version}_amd64.deb::https://github.com/YangYuS8/lwe/releases/download/v${cargo_version}/lwe_${cargo_version}_amd64.deb\")|" packaging/aur/lwe/PKGBUILD
-          sed -i "s/^pkgver = .*/pkgver = ${cargo_version}/" packaging/aur/lwe/.SRCINFO
-          sed -i "s|^\s*source = .*|\tsource = lwe_${cargo_version}_amd64.deb::https://github.com/YangYuS8/lwe/releases/download/v${cargo_version}/lwe_${cargo_version}_amd64.deb|" packaging/aur/lwe/.SRCINFO
+          sed -i "s/^[[:space:]]*pkgver = .*/\tpkgver = ${cargo_version}/" packaging/aur/lwe/.SRCINFO
+          sed -i "s/^[[:space:]]*license = .*/\tlicense = Apache-2.0/" packaging/aur/lwe/.SRCINFO
+          sed -i "s|^[[:space:]]*source = .*|\tsource = lwe_${cargo_version}_amd64.deb::https://github.com/YangYuS8/lwe/releases/download/v${cargo_version}/lwe_${cargo_version}_amd64.deb|" packaging/aur/lwe/.SRCINFO
 
       - name: Setup SSH configuration
         env:

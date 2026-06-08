@@ -47,6 +47,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build documentation
+        env:
+          VITEPRESS_BASE: /lwe/
         run: pnpm docs:build
 
       - name: Upload artifact
