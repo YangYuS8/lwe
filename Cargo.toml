@@ -51,7 +51,7 @@ clap = { version = "4.5", features = ["derive"] }
 # Utilities
 dirs = "5.0"
 chrono = { version = "0.4", features = ["serde"] }
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Async
 tokio = { version = "1.52", features = ["sync", "rt-multi-thread"] }
