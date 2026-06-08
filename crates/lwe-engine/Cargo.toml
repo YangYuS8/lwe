@@ -42,7 +42,7 @@ calloop = "0.14"
 calloop-wayland-source = "0.4"
 
 # Utilities
-bitflags = "2.4"
+bitflags = "2.13"
 libc = "0.2"
 lz4_flex = "0.13.1"
 
