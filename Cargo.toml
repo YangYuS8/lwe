@@ -27,7 +27,7 @@ version = "0.9.9"
 edition = "2024"
 rust-version = "1.85"
 authors = ["LWE contributors"]
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/YangYuS8/lwe"
 
 # Shared dependency versions (workspace.dependencies)
