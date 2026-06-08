@@ -49,7 +49,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 clap = { version = "4.5", features = ["derive"] }
 
 # Utilities
-dirs = "5.0"
+dirs = "6.0"
 chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
 
