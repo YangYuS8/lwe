@@ -93,7 +93,7 @@ jobs:
       - name: Cache Rust artifacts
         uses: swatinem/rust-cache@v2
         with:
-          key: release-ubuntu-22.04
+          shared-key: release-ubuntu-22.04
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
