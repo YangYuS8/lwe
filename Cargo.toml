@@ -1,17 +1,6 @@
-# Repository Reset Workspace
-# ==========================
-#
-# This repository is in repository-reset mode for the Linux dynamic wallpaper
-# platform. The active workspace path is limited to src-tauri plus
-# the retained crates lwe-core, lwe-library, and lwe-engine, which remain
-# under evaluation for selective migration. Retired legacy GUI/CLI crates stay
-# in the repository temporarily for reference only and are not active workspace
-# members.
-# - lwe-core: retained shared models and configuration candidate
-# - lwe-engine: retained playback and rendering candidate
-# - lwe-library: retained local library and metadata candidate
-# - src-tauri: active LWE application shell
-# - wayvid-gui / wayvid-ctl: removed from the repository; history remains in git and archived planning material
+# Active LWE desktop workspace: the Tauri shell and shared core, library, and
+# Wayland runtime crates. Retired wayvid GUI/CLI implementations remain in Git
+# history, not in the active workspace.
 
 [workspace]
 resolver = "2"
@@ -23,9 +12,9 @@ members = [
 ]
 
 [workspace.package]
-version = "0.9.9"
+version = "0.9.10"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.90"
 authors = ["LWE contributors"]
 license = "Apache-2.0"
 repository = "https://github.com/YangYuS8/lwe"
@@ -77,7 +66,3 @@ codegen-units = 1
 
 [profile.dev]
 opt-level = 1
-
-# Legacy root-level [lib], [[bin]], and package metadata entries were removed
-# during the workspace transition. Packaging and release details should be
-# re-evaluated per migration candidate crate during the repository reset.

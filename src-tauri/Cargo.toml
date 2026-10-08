@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
+tauri = { version = "=2.12.1", features = ["protocol-asset", "tray-icon"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = "1.1"
@@ -18,7 +18,7 @@ lwe-engine = { path = "../crates/lwe-engine" }
 lwe-library = { path = "../crates/lwe-library" }
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "=2.7.1", features = [] }
 
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["gif", "png"] }
