@@ -78,11 +78,7 @@ python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
 Real desktop tests are opt-in: they apply/clear wallpapers and write session state. Run them only when the task calls for desktop acceptance and a suitable Wayland + `niri` session, monitors, GPU/EGL, mpv, Steam Workshop content, and video assets are available:
 
-```bash
-LWE_REAL_DESKTOP_TESTS=1 cargo test -p lwe-shell desktop_apply_flow -- --nocapture
-```
-
-Use the contributor guide's real-desktop checklist to verify visible application, independent per-monitor clear, restart/restore, and clear-all. Ordinary tests or a package/frontend build do not prove desktop runtime support; report desktop acceptance separately.
+Use the contributor guide's isolated test command and real-desktop checklist to verify repeated application in the same backend, visible application, independent per-monitor clear, restart/restore, and clear-all. The opt-in flag is `LWE_REAL_DESKTOP_TESTS=1`; keep `HOME` available for Workshop discovery while isolating `XDG_CONFIG_HOME`. Ordinary tests or a package/frontend build do not prove desktop runtime support; report desktop acceptance separately.
 
 ## Finish and maintain
 

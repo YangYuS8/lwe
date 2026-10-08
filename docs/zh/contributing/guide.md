@@ -158,14 +158,19 @@ python3 scripts/validate-appimage.py --appdir path/to/LWE.AppDir
 4. 如果存在多个显示器，把壁纸应用到第二个显示器，然后只清除其中一个显示器；
 5. 确认清除一个显示器不会停止其他显示器上的壁纸；
 6. 重启 LWE，确认已保存分配能恢复，或恢复失败能在 Desktop 页面中显示；
-7. 清除所有分配，并确认保存的会话不会再次恢复它们。
+7. 清除所有分配，并确认保存的会话不会再次恢复它们；
+8. 在同一进程中至少三轮应用、清除并重新应用视频，检查 EGL 资源复用。
 
 如果某个运行时步骤失败，请保留终端日志中指出失败阶段的行：后端启动、输出发现、首帧应用、按显示器清除或启动时恢复。这些信息是区分缺失视频资源、输出不匹配、Wayland layer-shell/EGL 失败和后端超时的受支持方式。
 
 Rust 测试套件中的真实桌面测试需要显式启用，因为它们依赖当前合成器、显示器布局、GPU/EGL 栈、Steam 创意工坊内容和本地视频资源。请只在已验证机器上运行：
 
 ```bash
-LWE_REAL_DESKTOP_TESTS=1 cargo test -p lwe-shell desktop_apply_flow -- --nocapture
+lwe_test_config="$(mktemp -d /tmp/lwe-real-desktop.XXXXXX)" && \
+XDG_CONFIG_HOME="$lwe_test_config" LWE_REAL_DESKTOP_TESTS=1 \
+  cargo test --locked -p lwe-shell --lib \
+  services::desktop_service::tests::desktop_apply_flow_reapplies_video_after_clear_on_same_backend \
+  -- --exact --nocapture --test-threads=1
 ```
 
 ## 报告问题

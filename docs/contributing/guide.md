@@ -158,14 +158,19 @@ Use this checklist for runtime changes:
 4. if multiple monitors are present, apply a wallpaper to a second monitor and then clear only one monitor;
 5. confirm clearing one monitor does not stop wallpapers on other monitors;
 6. restart LWE and confirm saved assignments are restored or that restore failures are visible in Desktop;
-7. clear all assignments and confirm the saved session no longer restores them.
+7. clear all assignments and confirm the saved session no longer restores them;
+8. apply, clear, and reapply a video at least three times in the same process to check EGL resource reuse.
 
 If a runtime step fails, keep the terminal log line that names the failing stage: backend start, output discovery, first-frame apply, per-monitor clear, or startup restore. These messages are the supported way to distinguish missing video assets, output mismatches, Wayland layer-shell/EGL failures, and backend timeouts.
 
 Real desktop tests in the Rust test suite are opt-in because they depend on the active compositor, monitor layout, GPU/EGL stack, Steam Workshop content, and local video assets. Run them explicitly on a verified machine:
 
 ```bash
-LWE_REAL_DESKTOP_TESTS=1 cargo test -p lwe-shell desktop_apply_flow -- --nocapture
+lwe_test_config="$(mktemp -d /tmp/lwe-real-desktop.XXXXXX)" && \
+XDG_CONFIG_HOME="$lwe_test_config" LWE_REAL_DESKTOP_TESTS=1 \
+  cargo test --locked -p lwe-shell --lib \
+  services::desktop_service::tests::desktop_apply_flow_reapplies_video_after_clear_on_same_backend \
+  -- --exact --nocapture --test-threads=1
 ```
 
 ## Reporting issues

@@ -91,17 +91,20 @@ impl WallpaperSession {
         // Create EGL window for this surface
         let egl_window = egl_context.create_window(wl_surface, width, height)?;
         info!("  ✓ EGL window created");
+        self.egl_window = Some(egl_window);
 
         // Make context current and load GL functions
-        egl_context.make_current(&egl_window)?;
+        egl_context.make_current(
+            self.egl_window
+                .as_ref()
+                .expect("EGL window was just created"),
+        )?;
 
         if !self.gl_loaded {
             egl_context.load_gl_functions();
             self.gl_loaded = true;
             info!("  ✓ OpenGL functions loaded");
         }
-
-        self.egl_window = Some(egl_window);
 
         // Create MPV player
         let mut config = self.video_config.clone();
@@ -272,22 +275,28 @@ impl WallpaperSession {
         &self.output_info.name
     }
 
-    /// Cleanup EGL resources before destroying the session
-    /// This must be called when switching wallpapers to properly release EGL surfaces
-    pub fn cleanup_egl(&mut self, egl_context: &crate::egl::EglContext) {
-        // First stop MPV to release OpenGL resources
+    /// Release MPV and EGL resources before destroying this session's Wayland surface.
+    pub fn cleanup_egl(&mut self, egl_context: &crate::egl::EglContext) -> Result<()> {
+        // libmpv's render context must be freed with the same GL context current.
+        if self.player.is_some() {
+            let egl_window = self
+                .egl_window
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("MPV player has no EGL window during cleanup"))?;
+            egl_context.make_current(egl_window)?;
+        }
         if let Some(player) = self.player.take() {
             drop(player);
         }
 
-        // Destroy EGL surface properly
-        if let Some(ref egl_window) = self.egl_window
-            && let Err(e) = egl_context.destroy_surface(egl_window)
-        {
-            warn!("Failed to destroy EGL surface: {}", e);
+        // Unbind/destroy EGLSurface before dropping its native wl_egl_window.
+        if let Some(ref egl_window) = self.egl_window {
+            egl_context.destroy_surface(egl_window)?;
         }
         self.egl_window = None;
         self.initialized = false;
+        self.state = PlaybackState::Stopped;
+        Ok(())
     }
 }
 
