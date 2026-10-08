@@ -53,16 +53,16 @@ impl PowerManager {
                 let path = entry.path();
 
                 // Check if it's a battery (BAT0, BAT1, etc.)
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name.starts_with("BAT") {
-                        // Check status file
-                        let status_path = path.join("status");
-                        if let Ok(status) = fs::read_to_string(status_path) {
-                            let status = status.trim();
-                            // "Discharging" means on battery
-                            if status == "Discharging" {
-                                return true;
-                            }
+                if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                    && name.starts_with("BAT")
+                {
+                    // Check status file
+                    let status_path = path.join("status");
+                    if let Ok(status) = fs::read_to_string(status_path) {
+                        let status = status.trim();
+                        // "Discharging" means on battery
+                        if status == "Discharging" {
+                            return true;
                         }
                     }
                 }

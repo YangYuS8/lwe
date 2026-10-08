@@ -96,12 +96,12 @@ impl SteamLibrary {
         for line in content.lines() {
             let line = line.trim();
             // Look for "path" key in VDF format: "path"		"/path/to/library"
-            if line.starts_with("\"path\"") {
-                if let Some(path_str) = Self::extract_vdf_value(line) {
-                    let path = PathBuf::from(path_str);
-                    if path.exists() {
-                        paths.push(path);
-                    }
+            if line.starts_with("\"path\"")
+                && let Some(path_str) = Self::extract_vdf_value(line)
+            {
+                let path = PathBuf::from(path_str);
+                if path.exists() {
+                    paths.push(path);
                 }
             }
         }

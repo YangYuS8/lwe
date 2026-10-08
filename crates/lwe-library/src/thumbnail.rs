@@ -407,11 +407,11 @@ impl ThumbnailGenerator {
 
         if let Ok(entries) = std::fs::read_dir(&self.cache_dir) {
             for entry in entries.flatten() {
-                if let Ok(metadata) = entry.metadata() {
-                    if metadata.is_file() {
-                        stats.count += 1;
-                        stats.total_bytes += metadata.len();
-                    }
+                if let Ok(metadata) = entry.metadata()
+                    && metadata.is_file()
+                {
+                    stats.count += 1;
+                    stats.total_bytes += metadata.len();
                 }
             }
         }
@@ -631,10 +631,10 @@ fn hash_source_identity(path: &Path) -> String {
 
     if let Ok(metadata) = std::fs::metadata(path) {
         hasher.update(metadata.len().to_le_bytes());
-        if let Ok(modified) = metadata.modified() {
-            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                hasher.update(duration.as_nanos().to_le_bytes());
-            }
+        if let Ok(modified) = metadata.modified()
+            && let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH)
+        {
+            hasher.update(duration.as_nanos().to_le_bytes());
         }
     }
 

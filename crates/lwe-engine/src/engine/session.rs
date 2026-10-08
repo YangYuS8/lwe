@@ -281,10 +281,10 @@ impl WallpaperSession {
         }
 
         // Destroy EGL surface properly
-        if let Some(ref egl_window) = self.egl_window {
-            if let Err(e) = egl_context.destroy_surface(egl_window) {
-                warn!("Failed to destroy EGL surface: {}", e);
-            }
+        if let Some(ref egl_window) = self.egl_window
+            && let Err(e) = egl_context.destroy_surface(egl_window)
+        {
+            warn!("Failed to destroy EGL surface: {}", e);
         }
         self.egl_window = None;
         self.initialized = false;

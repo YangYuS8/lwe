@@ -83,10 +83,10 @@ impl SettingsService {
 
         match persistence.save_settings(&settings) {
             SettingsPersistenceWrite::Saved => {
-                if let Some(launch_on_login) = input.launch_on_login {
-                    if let Err(reason) = Self::apply_launch_on_login(launch_on_login) {
-                        eprintln!("launch-on-login update unavailable: {reason}");
-                    }
+                if let Some(launch_on_login) = input.launch_on_login
+                    && let Err(reason) = Self::apply_launch_on_login(launch_on_login)
+                {
+                    eprintln!("launch-on-login update unavailable: {reason}");
                 }
 
                 Self::load_page()

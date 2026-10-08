@@ -607,21 +607,21 @@ fn apply_wallpaper_to_output(
     qh: &QueueHandle<EngineState>,
 ) -> Result<()> {
     // Check if we can reuse existing layer surface (hot-swap optimization)
-    if let Some(surface_info) = state.layer_surfaces.get(output_name) {
-        if surface_info.configured {
-            // Layer surface exists and is configured - just update the video source
-            if let (Some(surface_info), Some(session)) = (
-                state.layer_surfaces.get_mut(output_name),
-                state.sessions.get_mut(output_name),
-            ) {
-                info!(
-                    "Hot-swapping wallpaper for {} (reusing surface)",
-                    output_name
-                );
-                session.load_new_wallpaper(path)?;
-                surface_info.pending_apply_path = Some(path.to_path_buf());
-                return Ok(());
-            }
+    if let Some(surface_info) = state.layer_surfaces.get(output_name)
+        && surface_info.configured
+    {
+        // Layer surface exists and is configured - just update the video source
+        if let (Some(surface_info), Some(session)) = (
+            state.layer_surfaces.get_mut(output_name),
+            state.sessions.get_mut(output_name),
+        ) {
+            info!(
+                "Hot-swapping wallpaper for {} (reusing surface)",
+                output_name
+            );
+            session.load_new_wallpaper(path)?;
+            surface_info.pending_apply_path = Some(path.to_path_buf());
+            return Ok(());
         }
     }
 
@@ -769,14 +769,14 @@ impl Dispatch<WlRegistry, ()> for EngineState {
             }
             wl_registry::Event::GlobalRemove { name } => {
                 // Check if this was an output
-                if let Some(pending) = state.pending_outputs.remove(&name) {
-                    if let Some(output_name) = &pending.output_name {
-                        info!("Output removed: {}", output_name);
-                        state.outputs.remove_output(output_name);
-                        let _ = state
-                            .events_tx
-                            .send(EngineEvent::OutputRemoved(output_name.clone()));
-                    }
+                if let Some(pending) = state.pending_outputs.remove(&name)
+                    && let Some(output_name) = &pending.output_name
+                {
+                    info!("Output removed: {}", output_name);
+                    state.outputs.remove_output(output_name);
+                    let _ = state
+                        .events_tx
+                        .send(EngineEvent::OutputRemoved(output_name.clone()));
                 }
             }
             _ => {}
@@ -993,10 +993,10 @@ fn check_battery_status() -> bool {
 
             // Check if this is a battery (type = "Battery")
             let type_path = path.join("type");
-            if let Ok(device_type) = std::fs::read_to_string(&type_path) {
-                if device_type.trim().to_lowercase() != "battery" {
-                    continue;
-                }
+            if let Ok(device_type) = std::fs::read_to_string(&type_path)
+                && device_type.trim().to_lowercase() != "battery"
+            {
+                continue;
             }
 
             // Check battery status
