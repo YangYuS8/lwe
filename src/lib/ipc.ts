@@ -18,7 +18,9 @@ import type {
 type InvokeArgs = Record<string, unknown>;
 
 const invokeCommand = <T>(command: string, args?: InvokeArgs) => {
-  return invoke<T>(command, args);
+  return invoke<T>(command, args).catch((reason: unknown) => {
+    throw typeof reason === 'string' ? new Error(reason) : reason;
+  });
 };
 
 export const loadAppShell = () => invokeCommand<AppShellSnapshot>('load_app_shell');

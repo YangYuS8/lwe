@@ -32,24 +32,11 @@ pub struct SteamLibrary {
 impl SteamLibrary {
     /// Discover Steam installation automatically
     pub fn discover() -> Result<Self> {
-        let root = Self::find_steam_root()?;
-        let libraries = Self::parse_library_folders(&root)?;
-
-        info!(
-            "🎮 Found Steam installation with {} library folders",
-            libraries.len()
-        );
-        Ok(Self { root, libraries })
+        Self::discover_optional()?.context("Steam installation not found")
     }
 
-    /// Try to discover Steam, return None if not found
-    pub fn try_discover() -> Option<Self> {
-        Self::discover().ok()
-    }
-
-    /// Find Steam root directory
-    fn find_steam_root() -> Result<PathBuf> {
-        // Common Steam paths on Linux
+    /// Discover Steam if installed, preserving discovery and configuration errors.
+    pub fn discover_optional() -> Result<Option<Self>> {
         let candidates = [
             dirs::home_dir().map(|h| h.join(".steam/steam")),
             dirs::home_dir().map(|h| h.join(".local/share/Steam")),
@@ -60,24 +47,56 @@ impl SteamLibrary {
             dirs::home_dir().map(|h| h.join("snap/steam/common/.steam/steam")),
         ];
 
-        for candidate in candidates.into_iter().flatten() {
-            if candidate.exists() && candidate.join("steamapps").exists() {
-                debug!("Found Steam at: {:?}", candidate);
-                return Ok(candidate);
+        Self::discover_from_candidates(candidates.into_iter().flatten())
+    }
+
+    /// Try to discover Steam, return None if not found
+    pub fn try_discover() -> Option<Self> {
+        Self::discover().ok()
+    }
+
+    fn discover_from_candidates(
+        candidates: impl IntoIterator<Item = PathBuf>,
+    ) -> Result<Option<Self>> {
+        for root in candidates {
+            let steamapps = root.join("steamapps");
+            let metadata = match fs::metadata(&steamapps) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("Failed to inspect {}", steamapps.display()));
+                }
+            };
+            if !metadata.is_dir() {
+                anyhow::bail!(
+                    "Steam apps path is not a directory: {}",
+                    steamapps.display()
+                );
             }
+
+            debug!("Found Steam at: {:?}", root);
+            let libraries = Self::parse_library_folders(&root)?;
+            info!(
+                "🎮 Found Steam installation with {} library folders",
+                libraries.len()
+            );
+            return Ok(Some(Self { root, libraries }));
         }
 
-        anyhow::bail!("Steam installation not found")
+        Ok(None)
     }
 
     /// Parse libraryfolders.vdf to find additional libraries
     fn parse_library_folders(root: &Path) -> Result<Vec<PathBuf>> {
         let vdf_path = root.join("steamapps/libraryfolders.vdf");
-        if !vdf_path.exists() {
-            return Ok(vec![root.to_path_buf()]);
-        }
-
-        let content = fs::read_to_string(&vdf_path).context("Failed to read libraryfolders.vdf")?;
+        let content = match fs::read_to_string(&vdf_path) {
+            Ok(content) => content,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(vec![root.to_path_buf()]);
+            }
+            Err(error) => return Err(error).context("Failed to read libraryfolders.vdf"),
+        };
 
         let mut libraries = vec![root.to_path_buf()];
         libraries.extend(Self::parse_vdf_paths(&content));
@@ -576,6 +595,110 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
     use tempfile::TempDir;
+
+    #[test]
+    fn optional_steam_discovery_returns_none_when_candidates_are_missing() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let steam = SteamLibrary::discover_from_candidates([
+            temp_dir.path().join("missing-steam"),
+            temp_dir.path().join("another-missing-steam"),
+        ])
+        .unwrap();
+
+        assert!(steam.is_none());
+    }
+
+    #[test]
+    fn optional_steam_discovery_accepts_installation_without_workshop_content() {
+        let temp_dir = TempDir::new().unwrap();
+        fs::create_dir(temp_dir.path().join("steamapps")).unwrap();
+
+        let steam = SteamLibrary::discover_from_candidates([temp_dir.path().to_path_buf()])
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(steam.root, temp_dir.path());
+        assert!(!steam.has_wallpaper_engine());
+        assert!(
+            WorkshopScanner::new(steam)
+                .scan_catalog()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn optional_steam_discovery_preserves_invalid_utf8_vdf_error() {
+        let temp_dir = TempDir::new().unwrap();
+        fs::create_dir(temp_dir.path().join("steamapps")).unwrap();
+        fs::write(temp_dir.path().join("steamapps/libraryfolders.vdf"), [0xff]).unwrap();
+
+        let error =
+            SteamLibrary::discover_from_candidates([temp_dir.path().to_path_buf()]).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("Failed to read libraryfolders.vdf")
+        );
+        assert_eq!(
+            error
+                .root_cause()
+                .downcast_ref::<std::io::Error>()
+                .unwrap()
+                .kind(),
+            std::io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn optional_steam_discovery_preserves_unreadable_vdf_error() {
+        let temp_dir = TempDir::new().unwrap();
+        fs::create_dir_all(temp_dir.path().join("steamapps/libraryfolders.vdf")).unwrap();
+
+        let error =
+            SteamLibrary::discover_from_candidates([temp_dir.path().to_path_buf()]).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("Failed to read libraryfolders.vdf")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn optional_steam_discovery_preserves_vdf_permission_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        fs::create_dir(temp_dir.path().join("steamapps")).unwrap();
+        let vdf_path = temp_dir.path().join("steamapps/libraryfolders.vdf");
+        fs::write(&vdf_path, "\"libraryfolders\" { }").unwrap();
+        fs::set_permissions(&vdf_path, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read(&vdf_path).is_ok() {
+            // Root and other privileged users can bypass file read permissions.
+            return;
+        }
+
+        let error =
+            SteamLibrary::discover_from_candidates([temp_dir.path().to_path_buf()]).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("Failed to read libraryfolders.vdf")
+        );
+        assert_eq!(
+            error
+                .root_cause()
+                .downcast_ref::<std::io::Error>()
+                .unwrap()
+                .kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+    }
 
     #[test]
     fn test_vdf_value_extraction() {

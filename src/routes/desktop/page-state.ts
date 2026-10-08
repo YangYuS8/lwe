@@ -16,7 +16,9 @@ export const resolveDesktopPageState = (
   const desktopCopy = copyValue.desktop;
 
   if (snapshot.monitorDiscoveryIssue) {
-    issueMessages.push(snapshot.monitorDiscoveryIssue);
+    issueMessages.push(snapshot.monitorDiscoveryIssue === 'niri_session_required'
+      ? desktopCopy.niriSessionRequired
+      : snapshot.monitorDiscoveryIssue);
   } else if (!snapshot.monitorsAvailable) {
     issueMessages.push(desktopCopy.discoveryUnavailable);
   }

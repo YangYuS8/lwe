@@ -13,6 +13,8 @@ LWE works with Wallpaper Engine content from Steam Workshop. Before using Worksh
 
 The currently verified desktop environment is a Wayland session with `niri`. Other compositors or desktop environments may work, but they should be treated as unverified until tested.
 
+You can open LWE before installing Steam or downloading wallpapers. An empty Library is a normal first-launch state: subscribe to Wallpaper Engine items in Steam, wait for Steam to download them, then refresh the Library. On X11 or without `niri`, Library and Workshop browsing remain available while wallpaper playback requires the supported desktop session.
+
 ## Arch Linux AUR
 
 Two AUR packages are published:
@@ -47,8 +49,8 @@ Published artifact types include:
 Use your distribution's normal package tooling for `.deb` or `.rpm` files. For AppImage builds, mark the file executable before launching it.
 
 ```bash
-chmod +x LWE*.AppImage
-./LWE*.AppImage
+chmod +x lwe_*.AppImage
+./lwe_*.AppImage
 ```
 
 ## Build from source

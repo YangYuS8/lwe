@@ -19,6 +19,7 @@ type LibraryApplyRefreshState = {
 export type LibraryCopy = {
   empty: string;
   monitorDiscoveryUnavailable: string;
+  niriSessionRequired: string;
   desktopAssignmentsUnavailable: string;
   desktopAssignmentDataUnavailable: string;
 };
@@ -48,12 +49,14 @@ export const resolveLibraryApplyRefreshState = ({
 
 export const resolveLibraryAvailabilityIssues = (
   source: LibraryAvailabilitySource | LibraryItemDetail,
-  copy: Pick<LibraryCopy, 'monitorDiscoveryUnavailable' | 'desktopAssignmentsUnavailable'>
+  copy: Pick<LibraryCopy, 'monitorDiscoveryUnavailable' | 'niriSessionRequired' | 'desktopAssignmentsUnavailable'>
 ): string[] => {
   const issueMessages: string[] = [];
 
   if (source.monitorDiscoveryIssue) {
-    issueMessages.push(source.monitorDiscoveryIssue);
+    issueMessages.push(source.monitorDiscoveryIssue === 'niri_session_required'
+      ? copy.niriSessionRequired
+      : source.monitorDiscoveryIssue);
   } else if (!source.monitorsAvailable) {
     issueMessages.push(copy.monitorDiscoveryUnavailable);
   }

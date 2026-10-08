@@ -13,6 +13,8 @@ LWE 使用 Steam 创意工坊中的 Wallpaper Engine 内容。使用创意工坊
 
 目前已验证的桌面环境是 Wayland 会话配合 `niri`。其他合成器或桌面环境可能可用，但在完成验证前应视为未验证环境。
 
+尚未安装 Steam 或下载壁纸时也可以打开 LWE。首次启动时内容库为空属于正常状态：请在 Steam 订阅 Wallpaper Engine 创意工坊项目，等待 Steam 下载完成后刷新内容库。在 X11 或没有 `niri` 的环境中仍可浏览内容库和创意工坊，壁纸播放需要受支持的桌面会话。
+
 ## Arch Linux AUR
 
 项目发布两个 AUR 包：
@@ -47,8 +49,8 @@ yay -S lwe-git
 `.deb` 或 `.rpm` 文件请使用发行版常规包管理工具安装。AppImage 构建需要先添加可执行权限再启动。
 
 ```bash
-chmod +x LWE*.AppImage
-./LWE*.AppImage
+chmod +x lwe_*.AppImage
+./lwe_*.AppImage
 ```
 
 ## 从源码构建

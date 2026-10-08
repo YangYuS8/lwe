@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::process::Command;
 
 use serde_json::Value;
@@ -14,37 +15,58 @@ impl MonitorBackend for NiriMonitorBackend {
     }
 
     fn list_monitors(&self) -> BackendMonitorDiscovery {
-        let output = match Command::new("niri").args(["msg", "-j", "outputs"]).output() {
-            Ok(output) => output,
-            Err(error) => {
-                return BackendMonitorDiscovery::Unavailable {
-                    reason: format!("Failed to run `niri msg -j outputs`: {error}"),
-                };
-            }
-        };
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            let reason = if stderr.is_empty() {
-                format!("`niri msg -j outputs` exited with status {}", output.status)
-            } else {
-                format!("`niri msg -j outputs` failed: {stderr}")
-            };
-
-            return BackendMonitorDiscovery::Unavailable { reason };
-        }
-
-        let parsed = match serde_json::from_slice::<Value>(&output.stdout) {
-            Ok(parsed) => parsed,
-            Err(error) => {
-                return BackendMonitorDiscovery::Unavailable {
-                    reason: format!("Failed to parse `niri msg -j outputs`: {error}"),
-                };
-            }
-        };
-
-        parse_outputs(parsed)
+        list_monitors_with_command(
+            std::env::var_os("WAYLAND_DISPLAY").as_deref(),
+            Command::new("niri").args(["msg", "-j", "outputs"]),
+        )
     }
+}
+
+fn list_monitors_with_command(
+    wayland_display: Option<&OsStr>,
+    command: &mut Command,
+) -> BackendMonitorDiscovery {
+    if wayland_display.is_none_or(OsStr::is_empty) {
+        return BackendMonitorDiscovery::Unavailable {
+            reason: "niri_session_required".to_string(),
+        };
+    }
+
+    let output = match command.output() {
+        Ok(output) => output,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return BackendMonitorDiscovery::Unavailable {
+                reason: "niri_session_required".to_string(),
+            };
+        }
+        Err(error) => {
+            return BackendMonitorDiscovery::Unavailable {
+                reason: format!("Failed to run `niri msg -j outputs`: {error}"),
+            };
+        }
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let reason = if stderr.is_empty() {
+            format!("`niri msg -j outputs` exited with status {}", output.status)
+        } else {
+            format!("`niri msg -j outputs` failed: {stderr}")
+        };
+
+        return BackendMonitorDiscovery::Unavailable { reason };
+    }
+
+    let parsed = match serde_json::from_slice::<Value>(&output.stdout) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            return BackendMonitorDiscovery::Unavailable {
+                reason: format!("Failed to parse `niri msg -j outputs`: {error}"),
+            };
+        }
+    };
+
+    parse_outputs(parsed)
 }
 
 fn parse_outputs(parsed: Value) -> BackendMonitorDiscovery {
@@ -171,6 +193,84 @@ fn current_resolution(
 mod tests {
     use super::*;
     use serde_json::json;
+    use tempfile::TempDir;
+
+    #[test]
+    fn missing_wayland_session_reports_normal_support_requirement() {
+        for wayland_display in [None, Some(OsStr::new(""))] {
+            let result = list_monitors_with_command(wayland_display, &mut Command::new("/bin/sh"));
+
+            assert!(matches!(
+                result,
+                BackendMonitorDiscovery::Unavailable { reason }
+                    if reason == "niri_session_required"
+            ));
+        }
+    }
+
+    #[test]
+    fn missing_niri_executable_reports_normal_support_requirement() {
+        let root = TempDir::new().unwrap();
+        let result = list_monitors_with_command(
+            Some(OsStr::new("wayland-1")),
+            &mut Command::new(root.path().join("missing-niri")),
+        );
+
+        assert!(matches!(
+            result,
+            BackendMonitorDiscovery::Unavailable { reason }
+                if reason == "niri_session_required"
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn niri_command_permission_error_remains_a_failure() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = TempDir::new().unwrap();
+        let executable = root.path().join("niri");
+        std::fs::write(&executable, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let result = list_monitors_with_command(
+            Some(OsStr::new("wayland-1")),
+            &mut Command::new(&executable),
+        );
+
+        assert!(matches!(
+            result,
+            BackendMonitorDiscovery::Unavailable { reason }
+                if reason.starts_with("Failed to run `niri msg -j outputs`:")
+        ));
+    }
+
+    #[test]
+    fn niri_command_exit_failure_preserves_stderr() {
+        let result = list_monitors_with_command(
+            Some(OsStr::new("wayland-1")),
+            Command::new("/bin/sh").args(["-c", "printf 'socket unavailable' >&2; exit 1"]),
+        );
+
+        assert!(matches!(
+            result,
+            BackendMonitorDiscovery::Unavailable { reason }
+                if reason == "`niri msg -j outputs` failed: socket unavailable"
+        ));
+    }
+
+    #[test]
+    fn niri_command_invalid_json_remains_a_failure() {
+        let result = list_monitors_with_command(
+            Some(OsStr::new("wayland-1")),
+            Command::new("/bin/sh").args(["-c", "printf 'not json'"]),
+        );
+
+        assert!(matches!(
+            result,
+            BackendMonitorDiscovery::Unavailable { reason }
+                if reason.starts_with("Failed to parse `niri msg -j outputs`:")
+        ));
+    }
 
     #[test]
     fn parse_outputs_reports_unavailable_when_any_output_shape_is_invalid() {
