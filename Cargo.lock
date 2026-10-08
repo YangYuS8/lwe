@@ -2334,7 +2334,7 @@ dependencies = [
  "sha2 0.10.9",
  "sys-locale",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2355,7 +2355,7 @@ dependencies = [
  "lz4_flex",
  "raw-window-handle",
  "smithay-client-toolkit",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tracing",
  "wayland-client",
  "wayland-egl",
@@ -2383,7 +2383,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "walkdir",
