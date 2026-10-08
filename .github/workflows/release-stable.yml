@@ -11,7 +11,8 @@ concurrency:
 
 jobs:
   build-release:
-    runs-on: ubuntu-latest
+    # AppImage must also launch on the Ubuntu 22.04 catalog test host.
+    runs-on: ubuntu-22.04
     outputs:
       version: ${{ steps.version.outputs.version }}
       source_sha: ${{ steps.version.outputs.source_sha }}
@@ -84,13 +85,15 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.CARGO_INSTALL_ROOT }}/bin/cargo-tauri
-          key: ${{ runner.os }}-${{ runner.arch }}-tauri-cli-${{ steps.tauri-cli.outputs.version }}-rust-${{ steps.toolchain.outputs.channel }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-tauri-cli-${{ steps.tauri-cli.outputs.version }}-rust-${{ steps.toolchain.outputs.channel }}
 
       - name: Ensure exact Tauri CLI version
         run: bash scripts/ensure-tauri-cli.sh
 
       - name: Cache Rust artifacts
         uses: swatinem/rust-cache@v2
+        with:
+          key: release-ubuntu-22.04
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
