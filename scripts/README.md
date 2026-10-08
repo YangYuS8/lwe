@@ -15,6 +15,7 @@ Useful development and testing scripts for the active LWE workspace.
 - `ensure-tauri-cli.sh` - Install or verify the exact Cargo Tauri CLI from `.tauri-cli-version`
 - `validate-appimage.py` - Validate AppImages or an extracted AppDir before publishing
 - `sync-version.sh` - Sync stable workspace and AUR versions (requires `makepkg`)
+- `sync-cnb.py` - Mirror GitHub main and verified release packages to CNB without rebuilding
 
 ## Usage
 
@@ -60,6 +61,20 @@ python3 scripts/validate-appimage.py --appdir path/to/LWE.AppDir
 `ensure-tauri-cli.sh` defaults to an isolated installation in `target/tauri-cli` and accepts `CARGO_INSTALL_ROOT` for another location. Add that root's `bin/` directory to `PATH` when using the installed CLI. Both release workflows share `.tauri-cli-version` for installation, cache keys, and version verification.
 
 AppImage validation requires Python 3, `unsquashfs` (squashfs-tools), `file`, and `desktop-file-validate` (desktop-file-utils). It inspects the final package without running or repairing it. A package that fails validation must not be uploaded. See the maintained [contributor guide](../docs/contributing/guide.md) for the release and real-desktop acceptance checklists.
+
+### CNB Mirror
+
+GitHub Actions owns code, package builds, and publishing. `Sync CNB` mirrors the current `main`; stable and prerelease workflows call it with their published tag and exact source SHA. CNB keeps its EdgeOne documentation deployment under `api_trigger_docs` and has automatic Git-triggered builds disabled.
+
+Use a repository-scoped `CNB_TOKEN` Actions secret. The maintained [contributor guide](../docs/contributing/guide.md#github-to-cnb-mirror) describes permissions, migration, and manual replay. For a local replay with `CNB_TOKEN` supplied in the environment and authenticated `gh`:
+
+```bash
+python3 scripts/sync-cnb.py --release-tag v0.9.11
+# Retry documentation deployment independently:
+python3 scripts/sync-cnb.py --deploy-docs
+```
+
+Every selected package is downloaded from GitHub, verified against its SHA-256 digest, and read back from CNB after upload. Releases remain drafts until verification completes. Conflicting tags or attachment contents fail; the script never replaces them.
 
 ## Testing
 
