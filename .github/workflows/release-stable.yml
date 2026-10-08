@@ -99,7 +99,7 @@ jobs:
           echo "$cli_root/bin" >> "$GITHUB_PATH"
 
       - name: Cache Tauri CLI binary
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ env.CARGO_INSTALL_ROOT }}/bin/cargo-tauri
           key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.runner }}-tauri-cli-${{ steps.tauri-cli.outputs.version }}-rust-${{ steps.toolchain.outputs.channel }}
