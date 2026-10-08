@@ -27,7 +27,24 @@ jobs:
             -o "$actionlint_dir/actionlint.tar.gz"
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $actionlint_dir/actionlint.tar.gz" | sha256sum --check
           tar -xzf "$actionlint_dir/actionlint.tar.gz" -C "$actionlint_dir" actionlint
-          "$actionlint_dir/actionlint" -shellcheck='' -pyflakes='' .github/workflows/*.yml
+          # actionlint 1.7.12 predates GitHub's queue field. Validate that exact
+          # CNB configuration separately; keep every other workflow strict.
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import re
+          text = Path('.github/workflows/sync-cnb.yml').read_text()
+          expected = '\nconcurrency:\n  group: cnb-sync\n  cancel-in-progress: false\n  queue: max\n'
+          if expected not in text or len(re.findall(r'^\s*concurrency:', text, re.M)) != 1 or len(re.findall(r'^\s*queue:', text, re.M)) != 1:
+              raise SystemExit('CNB sync must use one global, non-canceling queue:max')
+          PYTHON
+          for workflow in .github/workflows/*.yml; do
+            if [ "$workflow" = '.github/workflows/sync-cnb.yml' ]; then
+              "$actionlint_dir/actionlint" -shellcheck='' -pyflakes='' \
+                -ignore '^unexpected key "queue" for "concurrency" section' "$workflow"
+            else
+              "$actionlint_dir/actionlint" -shellcheck='' -pyflakes='' "$workflow"
+            fi
+          done
 
       - name: Install system dependencies
         run: |

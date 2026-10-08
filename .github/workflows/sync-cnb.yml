@@ -1,0 +1,85 @@
+name: Sync CNB
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub release tag to mirror (empty synchronizes main)
+        type: string
+        default: ''
+      deploy_docs:
+        description: Deploy the current main documentation through CNB
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        required: true
+      expected_source_sha:
+        type: string
+        required: true
+    secrets:
+      CNB_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cnb-sync
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout maintained synchronization code
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install AppImage validation tools
+        if: inputs.release_tag != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools desktop-file-utils file
+
+      - name: Synchronize code and published artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          DEPLOY_DOCS: ${{ inputs.deploy_docs }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import subprocess
+          args = ['python3', 'scripts/sync-cnb.py']
+          if os.environ.get('RELEASE_TAG'):
+              args += ['--release-tag', os.environ['RELEASE_TAG']]
+          if os.environ.get('EXPECTED_SOURCE_SHA'):
+              args += ['--expected-source-sha', os.environ['EXPECTED_SOURCE_SHA']]
+          if os.environ.get('DEPLOY_DOCS') == 'true':
+              args += ['--deploy-docs']
+          elif os.environ['GITHUB_EVENT_NAME'] == 'push':
+              with open(os.environ['GITHUB_EVENT_PATH']) as event_file:
+                  event = json.load(event_file)
+              if event.get('ref') == 'refs/heads/main':
+                  args += ['--docs-changed-from', event['before'],
+                           '--docs-changed-to', event['after']]
+          subprocess.run(args, check=True)
+          PYTHON

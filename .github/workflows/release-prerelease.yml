@@ -265,3 +265,15 @@ jobs:
             packaging/aur/lwe-git \
             lwe-git \
             "chore: prerelease ${{ needs.build-prerelease.outputs.prerelease_version }}"
+
+  publish-cnb:
+    needs:
+      - build-prerelease
+      - publish-github-prerelease
+    uses: ./.github/workflows/sync-cnb.yml
+    permissions:
+      contents: read
+    with:
+      release_tag: ${{ needs.build-prerelease.outputs.prerelease_tag }}
+      expected_source_sha: ${{ needs.build-prerelease.outputs.source_sha }}
+    secrets: inherit
