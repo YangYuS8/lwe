@@ -12,15 +12,19 @@ concurrency:
 jobs:
   build-release:
     runs-on: ubuntu-latest
+    env:
+      CARGO_INSTALL_ROOT: ${{ runner.temp }}/lwe-tauri-cli
 
     outputs:
       version: ${{ steps.version.outputs.version }}
+      source_sha: ${{ steps.version.outputs.source_sha }}
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.sha }}
 
       - name: Install system dependencies
         run: |
@@ -35,7 +39,10 @@ jobs:
             librsvg2-dev \
             libsoup-3.0-dev \
             libwebkit2gtk-4.1-dev \
-            patchelf
+            patchelf \
+            squashfs-tools \
+            desktop-file-utils \
+            file
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -48,20 +55,40 @@ jobs:
           corepack prepare pnpm@11.1.3 --activate
           pnpm --version
 
+      - name: Read Rust toolchain
+        id: toolchain
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import tomllib
+          from pathlib import Path
+          toolchain = tomllib.loads(Path("rust-toolchain.toml").read_text())["toolchain"]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"channel={toolchain['channel']}\n")
+              output.write(f"components={','.join(toolchain.get('components', []))}\n")
+          PYTHON
+
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          components: ${{ steps.toolchain.outputs.components }}
+
+      - name: Read Tauri CLI version
+        id: tauri-cli
+        run: |
+          tauri_version="$(bash scripts/ensure-tauri-cli.sh --version)"
+          echo "version=$tauri_version" >> "$GITHUB_OUTPUT"
+          echo "$CARGO_INSTALL_ROOT/bin" >> "$GITHUB_PATH"
 
       - name: Cache Tauri CLI binary
         uses: actions/cache@v5
         with:
-          path: /home/runner/.cargo/bin/tauri
-          key: ${{ runner.os }}-tauri-cli-v2
+          path: ${{ env.CARGO_INSTALL_ROOT }}/bin/cargo-tauri
+          key: ${{ runner.os }}-${{ runner.arch }}-tauri-cli-${{ steps.tauri-cli.outputs.version }}-rust-${{ steps.toolchain.outputs.channel }}
 
-      - name: Install Tauri CLI
-        run: |
-          if ! command -v tauri >/dev/null 2>&1; then
-            cargo install tauri-cli --locked
-          fi
+      - name: Ensure exact Tauri CLI version
+        run: bash scripts/ensure-tauri-cli.sh
 
       - name: Cache Rust artifacts
         uses: swatinem/rust-cache@v2
@@ -80,9 +107,13 @@ jobs:
             exit 1
           fi
           echo "version=$tag_version" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Build bundles
-        run: cargo tauri build -b "deb,rpm,appimage"
+        run: |
+          # Rust caches may contain bundles from another release.
+          rm -rf target/release/bundle src-tauri/target/release/bundle dist
+          cargo tauri build -b "deb,rpm,appimage" -- --locked
 
       - name: Collect artifacts
         shell: bash
@@ -93,8 +124,8 @@ jobs:
           rpm_files=(target/release/bundle/rpm/*.rpm src-tauri/target/release/bundle/rpm/*.rpm)
           appimage_files=(target/release/bundle/appimage/*.AppImage src-tauri/target/release/bundle/appimage/*.AppImage)
 
-          if [ "${#deb_files[@]}" -eq 0 ] || [ "${#rpm_files[@]}" -eq 0 ] || [ "${#appimage_files[@]}" -eq 0 ]; then
-            echo "Expected bundle artifacts not found"
+          if [ "${#deb_files[@]}" -ne 1 ] || [ "${#rpm_files[@]}" -ne 1 ] || [ "${#appimage_files[@]}" -ne 1 ]; then
+            echo "Expected exactly one deb, rpm, and AppImage bundle"
             echo "deb: ${#deb_files[@]}, rpm: ${#rpm_files[@]}, appimage: ${#appimage_files[@]}"
             exit 1
           fi
@@ -102,6 +133,11 @@ jobs:
           cp -v "${deb_files[@]}" dist/
           cp -v "${rpm_files[@]}" dist/
           cp -v "${appimage_files[@]}" dist/
+
+      - name: Validate AppImage artifacts
+        run: |
+          python3 scripts/validate-appimage.py dist/*.AppImage
+          sha256sum dist/*.AppImage
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
@@ -120,6 +156,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ needs.build-release.outputs.source_sha }}
 
       - name: Download build artifacts
         uses: actions/download-artifact@v8
@@ -135,6 +172,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: LWE v${{ needs.build-release.outputs.version }}
+          target_commitish: ${{ needs.build-release.outputs.source_sha }}
           body_path: release-notes.md
           files: dist/*
 
@@ -152,6 +190,8 @@ jobs:
 
       - name: Checkout source
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.build-release.outputs.source_sha }}
 
       - name: Sync AUR stable package metadata
         shell: bash
@@ -188,6 +228,8 @@ jobs:
 
       - name: Checkout source
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.build-release.outputs.source_sha }}
 
       - name: Prepare ArchLinuxCN stable package PR payload
         shell: bash

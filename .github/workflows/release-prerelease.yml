@@ -22,8 +22,11 @@ jobs:
         github.event.workflow_run.head_branch == 'main'
       )
     runs-on: ubuntu-latest
+    env:
+      CARGO_INSTALL_ROOT: ${{ runner.temp }}/lwe-tauri-cli
 
     outputs:
+      base_version: ${{ steps.version.outputs.base_version }}
       prerelease_version: ${{ steps.version.outputs.prerelease_version }}
       prerelease_tag: ${{ steps.version.outputs.prerelease_tag }}
       short_sha: ${{ steps.version.outputs.short_sha }}
@@ -49,7 +52,10 @@ jobs:
             librsvg2-dev \
             libsoup-3.0-dev \
             libwebkit2gtk-4.1-dev \
-            patchelf
+            patchelf \
+            squashfs-tools \
+            desktop-file-utils \
+            file
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -62,20 +68,40 @@ jobs:
           corepack prepare pnpm@11.1.3 --activate
           pnpm --version
 
+      - name: Read Rust toolchain
+        id: toolchain
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import tomllib
+          from pathlib import Path
+          toolchain = tomllib.loads(Path("rust-toolchain.toml").read_text())["toolchain"]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"channel={toolchain['channel']}\n")
+              output.write(f"components={','.join(toolchain.get('components', []))}\n")
+          PYTHON
+
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          components: ${{ steps.toolchain.outputs.components }}
+
+      - name: Read Tauri CLI version
+        id: tauri-cli
+        run: |
+          tauri_version="$(bash scripts/ensure-tauri-cli.sh --version)"
+          echo "version=$tauri_version" >> "$GITHUB_OUTPUT"
+          echo "$CARGO_INSTALL_ROOT/bin" >> "$GITHUB_PATH"
 
       - name: Cache Tauri CLI binary
         uses: actions/cache@v5
         with:
-          path: /home/runner/.cargo/bin/tauri
-          key: ${{ runner.os }}-tauri-cli-v2
+          path: ${{ env.CARGO_INSTALL_ROOT }}/bin/cargo-tauri
+          key: ${{ runner.os }}-${{ runner.arch }}-tauri-cli-${{ steps.tauri-cli.outputs.version }}-rust-${{ steps.toolchain.outputs.channel }}
 
-      - name: Install Tauri CLI
-        run: |
-          if ! command -v tauri >/dev/null 2>&1; then
-            cargo install tauri-cli --locked
-          fi
+      - name: Ensure exact Tauri CLI version
+        run: bash scripts/ensure-tauri-cli.sh
 
       - name: Cache Rust artifacts
         uses: swatinem/rust-cache@v2
@@ -93,13 +119,17 @@ jobs:
           prerelease_version="${base_version}-beta.${GITHUB_RUN_NUMBER}+${short_sha}"
           prerelease_tag="v${prerelease_version}"
 
+          echo "base_version=${base_version}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
           echo "source_sha=${source_sha}" >> "$GITHUB_OUTPUT"
           echo "prerelease_version=${prerelease_version}" >> "$GITHUB_OUTPUT"
           echo "prerelease_tag=${prerelease_tag}" >> "$GITHUB_OUTPUT"
 
       - name: Build bundles
-        run: cargo tauri build -b "deb,rpm,appimage"
+        run: |
+          # Rust caches may contain bundles from another release.
+          rm -rf target/release/bundle src-tauri/target/release/bundle dist
+          cargo tauri build -b "deb,rpm,appimage" -- --locked
 
       - name: Collect artifacts
         shell: bash
@@ -110,8 +140,8 @@ jobs:
           rpm_files=(target/release/bundle/rpm/*.rpm src-tauri/target/release/bundle/rpm/*.rpm)
           appimage_files=(target/release/bundle/appimage/*.AppImage src-tauri/target/release/bundle/appimage/*.AppImage)
 
-          if [ "${#deb_files[@]}" -eq 0 ] || [ "${#rpm_files[@]}" -eq 0 ] || [ "${#appimage_files[@]}" -eq 0 ]; then
-            echo "Expected bundle artifacts not found"
+          if [ "${#deb_files[@]}" -ne 1 ] || [ "${#rpm_files[@]}" -ne 1 ] || [ "${#appimage_files[@]}" -ne 1 ]; then
+            echo "Expected exactly one deb, rpm, and AppImage bundle"
             echo "deb: ${#deb_files[@]}, rpm: ${#rpm_files[@]}, appimage: ${#appimage_files[@]}"
             exit 1
           fi
@@ -119,6 +149,11 @@ jobs:
           cp -v "${deb_files[@]}" dist/
           cp -v "${rpm_files[@]}" dist/
           cp -v "${appimage_files[@]}" dist/
+
+      - name: Validate AppImage artifacts
+        run: |
+          python3 scripts/validate-appimage.py dist/*.AppImage
+          sha256sum dist/*.AppImage
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
@@ -133,27 +168,11 @@ jobs:
       contents: write
 
     steps:
-      - name: Delete older prereleases for same commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          target_sha="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}"
-          current_tag="${{ needs.build-prerelease.outputs.prerelease_tag }}"
-
-          gh api repos/${{ github.repository }}/releases --paginate --jq '.[] | select(.prerelease == true) | [.id, .tag_name, .target_commitish] | @tsv' |
-          while IFS=$'\t' read -r release_id tag_name target_commitish; do
-            if [ "$target_commitish" = "$target_sha" ] && [ "$tag_name" != "$current_tag" ]; then
-              gh api -X DELETE "repos/${{ github.repository }}/releases/${release_id}"
-              gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/${tag_name}" || true
-            fi
-          done
-
       - name: Checkout source for release notes
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ needs.build-prerelease.outputs.source_sha }}
 
       - name: Download build artifacts
         uses: actions/download-artifact@v8
@@ -169,14 +188,32 @@ jobs:
         with:
           tag_name: ${{ needs.build-prerelease.outputs.prerelease_tag }}
           name: LWE ${{ needs.build-prerelease.outputs.prerelease_version }}
-          target_commitish: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          target_commitish: ${{ needs.build-prerelease.outputs.source_sha }}
           prerelease: true
           body_path: release-notes.md
           files: dist/*
 
+      - name: Delete older prereleases for same commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          target_sha="${{ needs.build-prerelease.outputs.source_sha }}"
+          current_tag="${{ needs.build-prerelease.outputs.prerelease_tag }}"
+
+          gh api repos/${{ github.repository }}/releases --paginate --jq '.[] | select(.prerelease == true) | [.id, .tag_name, .target_commitish] | @tsv' |
+          while IFS=$'\t' read -r release_id tag_name target_commitish; do
+            if [ "$target_commitish" = "$target_sha" ] && [ "$tag_name" != "$current_tag" ]; then
+              gh api -X DELETE "repos/${{ github.repository }}/releases/${release_id}"
+              gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/${tag_name}" || true
+            fi
+          done
+
   publish-aur-git:
     runs-on: ubuntu-latest
-    needs: build-prerelease
+    needs:
+      - build-prerelease
+      - publish-github-prerelease
 
     steps:
       - name: Install runtime dependencies
@@ -186,12 +223,14 @@ jobs:
 
       - name: Checkout source
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.build-prerelease.outputs.source_sha }}
 
       - name: Update AUR dev package metadata
         shell: bash
         run: |
           short_sha="${{ needs.build-prerelease.outputs.short_sha }}"
-          base_version="$(sed -n 's/^version = "\([^"]\+\)"$/\1/p' Cargo.toml | head -n 1)"
+          base_version="${{ needs.build-prerelease.outputs.base_version }}"
           aur_pkgver="${base_version}.beta.${GITHUB_RUN_NUMBER}.${short_sha}"
           sed -i "s/^pkgver=.*/pkgver=${aur_pkgver}/" packaging/aur/lwe-git/PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=1/" packaging/aur/lwe-git/PKGBUILD
