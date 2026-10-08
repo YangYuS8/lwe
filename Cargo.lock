@@ -2323,7 +2323,7 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
 name = "lwe-core"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2339,7 +2339,7 @@ dependencies = [
 
 [[package]]
 name = "lwe-engine"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "ash",
@@ -2365,7 +2365,7 @@ dependencies = [
 
 [[package]]
 name = "lwe-library"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2392,7 +2392,7 @@ dependencies = [
 
 [[package]]
 name = "lwe-shell"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "image",
  "lwe-engine",
