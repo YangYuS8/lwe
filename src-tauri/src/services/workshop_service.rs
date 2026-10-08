@@ -418,13 +418,17 @@ impl WorkshopService {
     }
 
     fn scan_catalog() -> Result<Vec<WorkshopCatalogEntry>, String> {
-        let steam = SteamLibrary::discover()
+        let steam = SteamLibrary::discover_optional()
             .map_err(|error| format!("Steam Workshop is unavailable: {error}"))?;
-        if !steam.has_wallpaper_engine() {
-            return Err(
-                "Wallpaper Engine Workshop content is unavailable on this machine".to_string(),
-            );
-        }
+        Self::scan_catalog_from_steam(steam)
+    }
+
+    fn scan_catalog_from_steam(
+        steam: Option<SteamLibrary>,
+    ) -> Result<Vec<WorkshopCatalogEntry>, String> {
+        let Some(steam) = steam else {
+            return Ok(Vec::new());
+        };
 
         let mut scanner = WorkshopScanner::new(steam);
 
@@ -480,7 +484,50 @@ mod tests {
     use super::WorkshopService;
     use crate::models::{WorkshopAgeRating, WorkshopOnlineItemType};
     use crate::results::workshop::WorkshopRefreshResult;
+    use lwe_library::SteamLibrary;
     use serde_json::json;
+    use tempfile::TempDir;
+
+    #[test]
+    fn missing_steam_returns_an_empty_catalog() {
+        assert!(
+            WorkshopService::scan_catalog_from_steam(None)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn steam_without_wallpaper_engine_content_returns_an_empty_catalog() {
+        let root = TempDir::new().unwrap();
+        std::fs::create_dir(root.path().join("steamapps")).unwrap();
+        let steam = SteamLibrary {
+            root: root.path().to_path_buf(),
+            libraries: Vec::new(),
+        };
+
+        assert!(
+            WorkshopService::scan_catalog_from_steam(Some(steam))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn invalid_workshop_directory_preserves_scan_error() {
+        let root = TempDir::new().unwrap();
+        let content = root.path().join("steamapps/workshop/content");
+        std::fs::create_dir_all(&content).unwrap();
+        std::fs::write(content.join("431960"), "not a directory").unwrap();
+        let steam = SteamLibrary {
+            root: root.path().to_path_buf(),
+            libraries: Vec::new(),
+        };
+
+        let error = WorkshopService::scan_catalog_from_steam(Some(steam)).unwrap_err();
+
+        assert!(error.contains("Failed to scan the Steam Workshop catalog"));
+    }
 
     #[test]
     fn service_layer_workshop_service_returns_application_result_not_page_snapshot() {
