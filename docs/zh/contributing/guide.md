@@ -118,6 +118,8 @@ python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
 两条发布 workflow 都读取 `.tauri-cli-version`，将其纳入 CLI 缓存键，并在恢复缓存后验证 `cargo-tauri`。缓存中的版本不匹配时，必须替换并重新核验，才能开始构建。
 
+发布包在 Ubuntu 22.04 上构建，以保持 glibc 要求与 AppImage 目录的测试主机兼容。发布 CLI 和 Rust 缓存应与更新发行版上的构建隔离；静态元数据校验通过不能证明 AppImage 可以在最低支持系统上启动。Quality CI 使用校验过 SHA-256 的 actionlint 检查所有 workflow。
+
 AppImage 验证需要 Python 3、`unsquashfs`（来自 squashfs-tools）、`file` 和 `desktop-file-validate`（来自 desktop-file-utils）：
 
 ```bash
