@@ -22,9 +22,6 @@ jobs:
         github.event.workflow_run.head_branch == 'main'
       )
     runs-on: ubuntu-latest
-    env:
-      CARGO_INSTALL_ROOT: ${{ runner.temp }}/lwe-tauri-cli
-
     outputs:
       base_version: ${{ steps.version.outputs.base_version }}
       prerelease_version: ${{ steps.version.outputs.prerelease_version }}
@@ -92,7 +89,9 @@ jobs:
         run: |
           tauri_version="$(bash scripts/ensure-tauri-cli.sh --version)"
           echo "version=$tauri_version" >> "$GITHUB_OUTPUT"
-          echo "$CARGO_INSTALL_ROOT/bin" >> "$GITHUB_PATH"
+          cli_root="$RUNNER_TEMP/lwe-tauri-cli"
+          echo "CARGO_INSTALL_ROOT=$cli_root" >> "$GITHUB_ENV"
+          echo "$cli_root/bin" >> "$GITHUB_PATH"
 
       - name: Cache Tauri CLI binary
         uses: actions/cache@v5
