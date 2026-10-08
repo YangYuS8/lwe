@@ -25,7 +25,7 @@ rayon = "1.12"
 
 # File watching
 notify = "7.0"
-notify-debouncer-mini = "0.5"
+notify-debouncer-mini = "0.7"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
