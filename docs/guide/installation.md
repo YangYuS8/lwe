@@ -57,15 +57,20 @@ Use this path when contributing or when you need to validate a local change.
 
 Required tooling:
 
-- Node.js 20 or newer
-- pnpm
-- Rust stable toolchain
+- Node.js 24, matching CI
+- pnpm 11.1.3, pinned in `package.json`
+- Rust 1.99.0, selected by `rust-toolchain.toml`
 - Tauri 2 build dependencies for your distribution
+
+The minimum supported Rust version is declared separately in `Cargo.toml`. Desktop builds use the exact Cargo Tauri CLI from `.tauri-cli-version`; the shared installer verifies or installs it.
 
 Install JavaScript dependencies:
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
+pnpm exec svelte-kit sync
+./scripts/ensure-tauri-cli.sh
+export PATH="$PWD/target/tauri-cli/bin:$PATH"
 ```
 
 Run frontend checks:
@@ -81,7 +86,7 @@ Run Rust checks:
 cargo check --workspace
 ```
 
-For local application development, use the Tauri/Svelte entry points in this repository. The active desktop app path is `src-tauri` with the frontend under `src`.
+Start local desktop development with `pnpm tauri:dev`. The active desktop app path is `src-tauri` with the frontend under `src`; `pnpm dev` alone runs only the frontend. For package builds and acceptance checks, follow the [contributor guide](../contributing/guide.md).
 
 ## After installation
 

@@ -246,10 +246,10 @@ fn default_minimize_to_tray() -> bool {
 
 fn default_language() -> String {
     // Try to detect system locale
-    if let Some(locale) = sys_locale::get_locale() {
-        if locale.starts_with("zh") {
-            return "zh-CN".to_string();
-        }
+    if let Some(locale) = sys_locale::get_locale()
+        && locale.starts_with("zh")
+    {
+        return "zh-CN".to_string();
     }
     "en".to_string()
 }

@@ -38,6 +38,10 @@ test-videos/
 test.log
 test_results/
 tests/
+!scripts/tests/
+!scripts/tests/test_*.py
+__pycache__/
+*.py[cod]
 
 # Nix
 result

@@ -73,15 +73,15 @@ impl DesktopPersistenceService {
         path: &std::path::Path,
         assignments: &BTreeMap<String, String>,
     ) -> DesktopPersistenceWrite {
-        if let Some(parent) = path.parent() {
-            if let Err(error) = fs::create_dir_all(parent) {
-                return DesktopPersistenceWrite::Unavailable {
-                    reason: format!(
-                        "Failed to create desktop assignments directory {}: {error}",
-                        parent.display()
-                    ),
-                };
-            }
+        if let Some(parent) = path.parent()
+            && let Err(error) = fs::create_dir_all(parent)
+        {
+            return DesktopPersistenceWrite::Unavailable {
+                reason: format!(
+                    "Failed to create desktop assignments directory {}: {error}",
+                    parent.display()
+                ),
+            };
         }
 
         let contents = match toml::to_string(&PersistedSessionState {

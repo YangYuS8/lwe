@@ -4,16 +4,23 @@
 
 Install the core toolchain:
 
-- Node.js 24 recommended; Node.js 20 or newer may work when supported by the frontend toolchain;
-- pnpm;
-- Rust stable;
+- Node.js 24, matching CI;
+- pnpm 11.1.3, pinned in `package.json`;
+- Rust 1.99.0, selected by `rust-toolchain.toml`; the minimum supported Rust version is declared separately in `Cargo.toml`;
 - platform dependencies required by Tauri 2 on your distribution.
+
+The Cargo Tauri CLI version is pinned in `.tauri-cli-version` (2.12.1). Use the shared installer to verify or install that exact version rather than an unbounded latest CLI.
 
 Install dependencies:
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
+pnpm exec svelte-kit sync
+./scripts/ensure-tauri-cli.sh
+export PATH="$PWD/target/tauri-cli/bin:$PATH"
 ```
+
+The installer keeps the CLI separate from your existing Cargo tools in `target/tauri-cli` by default. To use another location, set `CARGO_INSTALL_ROOT` when running the installer and add that directory's `bin/` to `PATH` before running `pnpm tauri:dev` or `cargo tauri build`.
 
 Run frontend checks:
 
@@ -99,18 +106,41 @@ cargo test --workspace
 pnpm docs:build
 ```
 
-For documentation-only changes, `pnpm docs:build` is the required validation.
+Quality Check also runs the lightweight packaging regressions:
+
+```bash
+python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+```
+
+For documentation-only changes, `pnpm docs:build` and `git diff --check` are the required validation.
+
+## Packaging validation
+
+Both release workflows read `.tauri-cli-version`, include it in the CLI cache key, and verify `cargo-tauri` after restoring the cache. A cached binary with a different version must be replaced and checked before building.
+
+AppImage validation requires Python 3, `unsquashfs` (from squashfs-tools), `file`, and `desktop-file-validate` (from desktop-file-utils):
+
+```bash
+python3 scripts/validate-appimage.py target/release/bundle/appimage/*.AppImage
+# Validate an already extracted AppDir instead:
+python3 scripts/validate-appimage.py --appdir path/to/LWE.AppDir
+```
+
+The validator checks executable `AppRun`, one valid root desktop entry, its icon, and a readable PNG `.DirIcon`. Relevant symbolic links must be relative, resolve inside the AppDir, and have existing targets; ordinary icon files are also accepted. It inspects packages without launching the application or repairing failed packages. Every AppImage selected for upload must pass this gate before release artifacts are published. Check the selected version and remove stale build artifacts from the upload selection.
+
+The regression suite covers valid packages and missing, broken, absolute, or escaping icon links. Passing fixtures does not replace validation of the built release artifact or real desktop acceptance.
 
 ## Release smoke checklist
 
-Before publishing a stable or prerelease tag, verify the release path that the tag will exercise:
+Before publishing a stable tag or merging to `main` for a prerelease, verify the release path that action will exercise:
 
-1. Run the required CI-equivalent checks locally when the change is broad: `pnpm check`, `pnpm test`, `pnpm build`, `pnpm docs:build`, `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo check --workspace`, and `cargo test --workspace`.
+1. Run the required CI-equivalent checks locally when the change is broad: `pnpm check`, `pnpm test`, `pnpm build`, `pnpm docs:build`, `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo check --workspace`, `cargo test --workspace`, and the packaging regressions above.
 2. Confirm the GitHub Actions quality workflow is passing on the commit to be tagged.
-3. Confirm release workflows build and upload the expected Linux artifacts: `.deb`, `.rpm`, and `.AppImage`.
+3. Confirm release workflows build the expected Linux artifacts (`.deb`, `.rpm`, and `.AppImage`) and pass AppImage validation before upload. After publishing, download the public AppImage, record its SHA-256, and validate it again.
 4. Confirm package-channel metadata matches the release channel: AUR stable (`lwe`) for stable tags and AUR git (`lwe-git`) for development/prerelease paths.
 5. For runtime-affecting release candidates, run the real desktop runtime acceptance checklist below on a verified Wayland + `niri` session before describing the runtime path as supported.
-6. Smoke the fresh install path when possible: install a package artifact, open Settings, generate diagnostics, review Workshop/Library state, apply a compatible video wallpaper, clear it, restart LWE, and confirm saved assignment behavior is visible.
+6. Smoke the fresh install path when possible: install a package artifact, open and move/resize the window, restore it from the tray, open Settings and generate diagnostics, review Workshop/Library state, apply a compatible video wallpaper, clear it, restart LWE, and confirm saved assignment behavior is visible. A Tauri upgrade that changes Wayland startup also needs this check on `niri`.
+7. Read back the release and package-channel results. For an AppImage directory repair, request upstream retesting only after the new stable AppImage is publicly available and verified; confirm the upstream log selected the new version.
 
 Package install success only proves the application starts from that package. It does not guarantee runtime support on an unverified compositor, GPU/EGL stack, monitor layout, or wallpaper type.
 
@@ -118,7 +148,7 @@ Package install success only proves the application starts from that package. It
 
 Runtime changes must be validated on a real supported desktop session before they are described as supported. The current verified target is Wayland with `niri` and video wallpapers.
 
-Session restore uses the LWE session file at `$XDG_CONFIG_HOME/lwe/session.toml`, or `$HOME/.config/lwe/session.toml` when `XDG_CONFIG_HOME` is unset. When testing restore behavior, inspect or remove that file if the Desktop page shows stale saved assignments.
+Session restore uses the LWE session file at `$XDG_CONFIG_HOME/lwe/session.toml`, or `$HOME/.config/lwe/session.toml` when `XDG_CONFIG_HOME` is unset. Use an isolated `XDG_CONFIG_HOME` for acceptance runs and inspect that test session file when checking restore behavior. Do not delete existing user settings or assignments as routine test setup.
 
 Use this checklist for runtime changes:
 
@@ -128,14 +158,19 @@ Use this checklist for runtime changes:
 4. if multiple monitors are present, apply a wallpaper to a second monitor and then clear only one monitor;
 5. confirm clearing one monitor does not stop wallpapers on other monitors;
 6. restart LWE and confirm saved assignments are restored or that restore failures are visible in Desktop;
-7. clear all assignments and confirm the saved session no longer restores them.
+7. clear all assignments and confirm the saved session no longer restores them;
+8. apply, clear, and reapply a video at least three times in the same process to check EGL resource reuse.
 
 If a runtime step fails, keep the terminal log line that names the failing stage: backend start, output discovery, first-frame apply, per-monitor clear, or startup restore. These messages are the supported way to distinguish missing video assets, output mismatches, Wayland layer-shell/EGL failures, and backend timeouts.
 
 Real desktop tests in the Rust test suite are opt-in because they depend on the active compositor, monitor layout, GPU/EGL stack, Steam Workshop content, and local video assets. Run them explicitly on a verified machine:
 
 ```bash
-LWE_REAL_DESKTOP_TESTS=1 cargo test -p lwe-shell desktop_apply_flow -- --nocapture
+lwe_test_config="$(mktemp -d /tmp/lwe-real-desktop.XXXXXX)" && \
+XDG_CONFIG_HOME="$lwe_test_config" LWE_REAL_DESKTOP_TESTS=1 \
+  cargo test --locked -p lwe-shell --lib \
+  services::desktop_service::tests::desktop_apply_flow_reapplies_video_after_clear_on_same_backend \
+  -- --exact --nocapture --test-threads=1
 ```
 
 ## Reporting issues

@@ -146,10 +146,10 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
                     })
                     .build(app)?;
 
-            if is_start_hidden() {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.hide();
-                }
+            if is_start_hidden()
+                && let Some(window) = app.get_webview_window("main")
+            {
+                let _ = window.hide();
             }
 
             if let Err(reason) =

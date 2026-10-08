@@ -10,7 +10,7 @@ mod session;
 pub use command::{EngineCommand, EngineConfig, EngineEvent, EngineStatus};
 pub use session::WallpaperSession;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ffi::CString;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -303,16 +303,13 @@ fn run_engine_thread(
 
     info!("PlaybackEngine shutting down");
 
-    // Cleanup layer surfaces
-    for (output, info) in state.layer_surfaces.drain() {
-        debug!("Destroying layer surface for output: {}", output);
-        info.layer_surface.destroy();
-    }
-
-    // Cleanup sessions
-    for (output, session) in state.sessions.drain() {
-        debug!("Destroying session for output: {}", output);
-        drop(session);
+    for output in outputs_with_resources(&state) {
+        if let Err(error) = release_output_resources(&mut state, &output) {
+            warn!(
+                "Failed to release output {} during shutdown: {:#}",
+                output, error
+            );
+        }
     }
 
     state.running = false;
@@ -333,9 +330,12 @@ fn render_all_surfaces(state: &mut EngineState) {
     let outputs: Vec<String> = state
         .layer_surfaces
         .iter()
-        .filter(|(_, info)| info.configured && info.frame_pending)
+        .filter(|(_, info)| {
+            info.configured && (info.frame_pending || info.pending_apply_path.is_some())
+        })
         .map(|(name, _)| name.clone())
         .collect();
+    let mut failed_outputs = Vec::new();
 
     for output_name in outputs {
         // Get layer surface info
@@ -373,19 +373,34 @@ fn render_all_surfaces(state: &mut EngineState) {
             }
             Ok(false) => {}
             Err(e) => {
-                warn!("Frame render error for {}: {}", output_name, e);
-                if surface_info.pending_apply_path.is_some() {
+                warn!("Frame render error for {}: {:#}", output_name, e);
+                if surface_info.pending_apply_path.take().is_some() {
                     let _ = state.events_tx.send(EngineEvent::Error(format!(
-                        "Failed to render first frame for {output_name}: {e}"
+                        "Failed to render first frame for {output_name}: {e:#}"
                     )));
+                    failed_outputs.push(output_name);
+                    continue;
                 }
             }
         }
 
-        // Request next frame callback
-        if let Some(qh) = state.queue_handle.as_ref() {
+        // The first buffer must be swapped before relying on compositor callbacks.
+        // Pending apply is polled above, without accumulating callbacks while decoding.
+        if surface_info.pending_apply_path.is_none()
+            && !surface_info.frame_callback_requested
+            && let Some(qh) = state.queue_handle.as_ref()
+        {
             let _callback = surface_info.wl_surface.frame(qh, output_name.clone());
+            surface_info.frame_callback_requested = true;
             surface_info.wl_surface.commit();
+        }
+    }
+    for output in failed_outputs {
+        if let Err(error) = release_output_resources(state, &output) {
+            warn!(
+                "Failed to release output {} after apply error: {:#}",
+                output, error
+            );
         }
     }
 }
@@ -434,8 +449,10 @@ struct LayerSurfaceInfo {
     height: u32,
     /// Whether surface is configured
     configured: bool,
-    /// Frame callback pending
+    /// A configure/frame callback has made this surface ready to render
     frame_pending: bool,
+    /// A compositor frame callback has been requested and has not fired yet
+    frame_callback_requested: bool,
     /// Wallpaper path waiting for first successful rendered frame
     pending_apply_path: Option<std::path::PathBuf>,
 }
@@ -503,27 +520,22 @@ fn handle_command(cmd: EngineCommand, state: &mut EngineState) {
             let explicit_output = output.is_some();
             let outputs_to_clear: Vec<String> = match output {
                 Some(name) => vec![name],
-                None => state.sessions.keys().cloned().collect(),
+                None => outputs_with_resources(state),
             };
 
             for output_name in outputs_to_clear {
-                let mut cleared = false;
-
-                // Remove layer surface first
-                if let Some(info) = state.layer_surfaces.remove(&output_name) {
-                    info.layer_surface.destroy();
-                    cleared = true;
-                }
-                // Then remove session
-                if let Some(session) = state.sessions.remove(&output_name) {
-                    drop(session);
-                    cleared = true;
-                }
-
-                if cleared || explicit_output {
-                    let _ = state.events_tx.send(EngineEvent::WallpaperCleared {
-                        output: output_name,
-                    });
+                match release_output_resources(state, &output_name) {
+                    Ok(cleared) if cleared || explicit_output => {
+                        let _ = state.events_tx.send(EngineEvent::WallpaperCleared {
+                            output: output_name,
+                        });
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        let _ = state.events_tx.send(EngineEvent::Error(format!(
+                            "Failed to clear wallpaper for {output_name}: {error:#}"
+                        )));
+                    }
                 }
             }
         }
@@ -577,6 +589,7 @@ fn handle_command(cmd: EngineCommand, state: &mut EngineState) {
             let active_wallpapers = state
                 .sessions
                 .iter()
+                .filter(|(_, session)| session.can_reuse_resources())
                 .map(|(name, session)| {
                     (
                         name.clone(),
@@ -599,6 +612,35 @@ fn handle_command(cmd: EngineCommand, state: &mut EngineState) {
     }
 }
 
+fn outputs_with_resources(state: &EngineState) -> Vec<String> {
+    state
+        .sessions
+        .keys()
+        .chain(state.layer_surfaces.keys())
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+/// Release render resources before their underlying Wayland protocol objects.
+fn release_output_resources(state: &mut EngineState, output_name: &str) -> Result<bool> {
+    if let Some(session) = state.sessions.get_mut(output_name)
+        && let Some(egl_context) = state.egl_context.as_ref()
+    {
+        session.cleanup_egl(egl_context)?;
+    }
+    let session_removed = state.sessions.remove(output_name).is_some();
+    let surface_removed = if let Some(info) = state.layer_surfaces.remove(output_name) {
+        info.layer_surface.destroy();
+        info.wl_surface.destroy();
+        true
+    } else {
+        false
+    };
+    Ok(session_removed || surface_removed)
+}
+
 /// Apply wallpaper to a specific output
 fn apply_wallpaper_to_output(
     state: &mut EngineState,
@@ -607,22 +649,19 @@ fn apply_wallpaper_to_output(
     qh: &QueueHandle<EngineState>,
 ) -> Result<()> {
     // Check if we can reuse existing layer surface (hot-swap optimization)
-    if let Some(surface_info) = state.layer_surfaces.get(output_name) {
-        if surface_info.configured {
-            // Layer surface exists and is configured - just update the video source
-            if let (Some(surface_info), Some(session)) = (
-                state.layer_surfaces.get_mut(output_name),
-                state.sessions.get_mut(output_name),
-            ) {
-                info!(
-                    "Hot-swapping wallpaper for {} (reusing surface)",
-                    output_name
-                );
-                session.load_new_wallpaper(path)?;
-                surface_info.pending_apply_path = Some(path.to_path_buf());
-                return Ok(());
-            }
-        }
+    if let (Some(surface_info), Some(session)) = (
+        state.layer_surfaces.get_mut(output_name),
+        state.sessions.get_mut(output_name),
+    ) && surface_info.configured
+        && session.can_reuse_resources()
+    {
+        info!(
+            "Hot-swapping wallpaper for {} (reusing surface)",
+            output_name
+        );
+        session.load_new_wallpaper(path)?;
+        surface_info.pending_apply_path = Some(path.to_path_buf());
+        return Ok(());
     }
 
     // Get output info
@@ -634,25 +673,15 @@ fn apply_wallpaper_to_output(
     let compositor = state
         .compositor
         .as_ref()
+        .cloned()
         .context("Compositor not available")?;
     let layer_shell = state
         .layer_shell
         .as_ref()
+        .cloned()
         .context("Layer shell not available")?;
 
-    // Cleanup existing session EGL resources before destroying
-    if let Some(mut old_session) = state.sessions.remove(output_name) {
-        if let Some(ref egl_ctx) = state.egl_context {
-            old_session.cleanup_egl(egl_ctx);
-        }
-        drop(old_session);
-    }
-
-    // Remove existing layer surface
-    if let Some(old_info) = state.layer_surfaces.remove(output_name) {
-        old_info.layer_surface.destroy();
-        // wl_surface is automatically destroyed when dropped
-    }
+    release_output_resources(state, output_name)?;
 
     info!(
         "Creating layer surface for {} ({}x{})",
@@ -694,6 +723,7 @@ fn apply_wallpaper_to_output(
             height: output_info.height as u32,
             configured: false,
             frame_pending: false,
+            frame_callback_requested: false,
             pending_apply_path: Some(path.to_path_buf()),
         },
     );
@@ -769,14 +799,14 @@ impl Dispatch<WlRegistry, ()> for EngineState {
             }
             wl_registry::Event::GlobalRemove { name } => {
                 // Check if this was an output
-                if let Some(pending) = state.pending_outputs.remove(&name) {
-                    if let Some(output_name) = &pending.output_name {
-                        info!("Output removed: {}", output_name);
-                        state.outputs.remove_output(output_name);
-                        let _ = state
-                            .events_tx
-                            .send(EngineEvent::OutputRemoved(output_name.clone()));
-                    }
+                if let Some(pending) = state.pending_outputs.remove(&name)
+                    && let Some(output_name) = &pending.output_name
+                {
+                    info!("Output removed: {}", output_name);
+                    state.outputs.remove_output(output_name);
+                    let _ = state
+                        .events_tx
+                        .send(EngineEvent::OutputRemoved(output_name.clone()));
                 }
             }
             _ => {}
@@ -957,7 +987,11 @@ impl Dispatch<ZwlrLayerSurfaceV1, String> for EngineState {
             }
             zwlr_layer_surface_v1::Event::Closed => {
                 info!("Layer surface closed for {}", output_name);
-                state.layer_surfaces.remove(output_name);
+                if let Err(error) = release_output_resources(state, output_name) {
+                    let _ = state.events_tx.send(EngineEvent::Error(format!(
+                        "Failed to release closed output {output_name}: {error:#}"
+                    )));
+                }
             }
             _ => {}
         }
@@ -977,6 +1011,7 @@ impl Dispatch<WlCallback, String> for EngineState {
         if let wl_callback::Event::Done { callback_data: _ } = event {
             // Frame callback triggered - mark surface ready for rendering
             if let Some(info) = state.layer_surfaces.get_mut(output_name) {
+                info.frame_callback_requested = false;
                 info.frame_pending = true;
             }
         }
@@ -993,10 +1028,10 @@ fn check_battery_status() -> bool {
 
             // Check if this is a battery (type = "Battery")
             let type_path = path.join("type");
-            if let Ok(device_type) = std::fs::read_to_string(&type_path) {
-                if device_type.trim().to_lowercase() != "battery" {
-                    continue;
-                }
+            if let Ok(device_type) = std::fs::read_to_string(&type_path)
+                && device_type.trim().to_lowercase() != "battery"
+            {
+                continue;
             }
 
             // Check battery status

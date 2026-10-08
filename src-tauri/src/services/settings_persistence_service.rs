@@ -52,15 +52,15 @@ impl ScopedSettingsPersistenceService {
     }
 
     pub fn save_settings(&self, settings: &PersistedSettings) -> SettingsPersistenceWrite {
-        if let Some(parent) = self.path.parent() {
-            if let Err(error) = fs::create_dir_all(parent) {
-                return SettingsPersistenceWrite::Unavailable {
-                    reason: format!(
-                        "Failed to create settings directory {}: {error}",
-                        parent.display()
-                    ),
-                };
-            }
+        if let Some(parent) = self.path.parent()
+            && let Err(error) = fs::create_dir_all(parent)
+        {
+            return SettingsPersistenceWrite::Unavailable {
+                reason: format!(
+                    "Failed to create settings directory {}: {error}",
+                    parent.display()
+                ),
+            };
         }
 
         let contents = match toml::to_string(settings) {

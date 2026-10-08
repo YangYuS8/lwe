@@ -57,15 +57,20 @@ chmod +x LWE*.AppImage
 
 需要的工具：
 
-- Node.js 20 或更新版本
-- pnpm
-- Rust stable 工具链
+- Node.js 24，与 CI 一致
+- pnpm 11.1.3，由 `package.json` 固定
+- Rust 1.99.0，由 `rust-toolchain.toml` 选择
 - 当前发行版所需的 Tauri 2 构建依赖
+
+最低支持的 Rust 版本另行声明在 `Cargo.toml` 中。桌面构建使用 `.tauri-cli-version` 指定的精确 Cargo Tauri CLI，共享安装脚本会核验或安装该版本。
 
 安装 JavaScript 依赖：
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
+pnpm exec svelte-kit sync
+./scripts/ensure-tauri-cli.sh
+export PATH="$PWD/target/tauri-cli/bin:$PATH"
 ```
 
 运行前端检查：
@@ -81,7 +86,7 @@ pnpm test
 cargo check --workspace
 ```
 
-本地应用开发请使用仓库中的 Tauri/Svelte 入口。活跃桌面应用路径是 `src-tauri`，前端位于 `src`。
+使用 `pnpm tauri:dev` 启动本地桌面开发。活跃桌面应用路径是 `src-tauri`，前端位于 `src`；单独运行 `pnpm dev` 只会启动前端。包构建和验收检查见[贡献指南](../contributing/guide.md)。
 
 ## 安装后
 

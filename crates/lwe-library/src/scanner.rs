@@ -299,10 +299,10 @@ impl IncrementalScanner {
             if let Some(modified) = modified {
                 if let Some(known_modified) = self.known_files.get(file_path) {
                     // Check if file was modified
-                    if &modified != known_modified {
-                        if let Some(item) = self.scanner.process_file(file_path) {
-                            result.updated.push(item);
-                        }
+                    if &modified != known_modified
+                        && let Some(item) = self.scanner.process_file(file_path)
+                    {
+                        result.updated.push(item);
                     }
                 } else {
                     // New file

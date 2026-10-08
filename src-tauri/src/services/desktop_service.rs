@@ -1420,4 +1420,48 @@ mod tests {
 
         assert!(matches!(result, DesktopApplyResult::Cleared { .. }));
     }
+
+    #[test]
+    fn desktop_apply_flow_reapplies_video_after_clear_on_same_backend() {
+        if !real_desktop_tests_enabled() {
+            eprintln!("skipping real desktop reapply test; set LWE_REAL_DESKTOP_TESTS=1 to enable");
+            return;
+        }
+
+        let _guard = real_desktop_flow_test_guard();
+        let monitor_id = known_monitor_id().expect("expected a real discovered monitor");
+        let item_id = real_supported_library_item_id()
+            .expect("expected one real supported video Library item");
+        let mut backend_identity = None;
+
+        for cycle in 1..=3 {
+            let apply_result = DesktopService::apply_to_monitor(&monitor_id, &item_id).unwrap();
+            assert!(
+                matches!(apply_result, DesktopApplyResult::AppliedWithBackend { .. }),
+                "cycle {cycle}: expected real backend apply, got {apply_result:?}"
+            );
+
+            let clear_result = DesktopService::clear_monitor(&monitor_id).unwrap();
+            assert!(
+                matches!(clear_result, DesktopApplyResult::Cleared { .. }),
+                "cycle {cycle}: expected real backend clear, got {clear_result:?}"
+            );
+
+            let backend_guard = desktop_apply_backend_slot().lock().unwrap();
+            let backend = backend_guard.as_ref().expect("expected a retained backend");
+            assert!(
+                backend.handle.is_running(),
+                "cycle {cycle}: backend stopped"
+            );
+            let identity = backend.handle.shutdown_flag();
+            if let Some(expected) = &backend_identity {
+                assert!(
+                    std::sync::Arc::ptr_eq(expected, &identity),
+                    "cycle {cycle}: backend restarted instead of reusing resources"
+                );
+            } else {
+                backend_identity = Some(identity);
+            }
+        }
+    }
 }

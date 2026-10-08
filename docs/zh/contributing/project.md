@@ -55,6 +55,10 @@ Linux 发布产物包括 `.deb`、`.rpm` 和 `.AppImage`。
 
 工作区版本来源是 `Cargo.toml`。预发布版本由发布自动化根据基础版本、GitHub Actions 运行编号和短提交 SHA 派生。
 
+### v0.9.10 打包修复
+
+v0.9.10 的打包维护修复 AppImage 图标链接并更新受支持的构建工具链。`.tauri-cli-version` 为两条发布渠道固定 CLI，`rust-toolchain.toml` 固定 Rust 构建工具链，上传门禁在发布前检查真实 AppImage。版本可用性以 GitHub Releases 为准。公开产物验证、`niri` 上的安装验收和 AppImage 目录复测是独立发布步骤。运行时支持范围保持为 Wayland + `niri` 上的视频壁纸。
+
 ## 文档模型
 
 所有维护中的文档都应位于 `docs/` 下，并作为 VitePress 站点发布。用户可见文档必须同时提供英文和简体中文版本。
