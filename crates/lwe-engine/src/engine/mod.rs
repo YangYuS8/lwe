@@ -330,7 +330,9 @@ fn render_all_surfaces(state: &mut EngineState) {
     let outputs: Vec<String> = state
         .layer_surfaces
         .iter()
-        .filter(|(_, info)| info.configured && info.frame_pending)
+        .filter(|(_, info)| {
+            info.configured && (info.frame_pending || info.pending_apply_path.is_some())
+        })
         .map(|(name, _)| name.clone())
         .collect();
     let mut failed_outputs = Vec::new();
@@ -382,9 +384,14 @@ fn render_all_surfaces(state: &mut EngineState) {
             }
         }
 
-        // Request next frame callback
-        if let Some(qh) = state.queue_handle.as_ref() {
+        // The first buffer must be swapped before relying on compositor callbacks.
+        // Pending apply is polled above, without accumulating callbacks while decoding.
+        if surface_info.pending_apply_path.is_none()
+            && !surface_info.frame_callback_requested
+            && let Some(qh) = state.queue_handle.as_ref()
+        {
             let _callback = surface_info.wl_surface.frame(qh, output_name.clone());
+            surface_info.frame_callback_requested = true;
             surface_info.wl_surface.commit();
         }
     }
@@ -442,8 +449,10 @@ struct LayerSurfaceInfo {
     height: u32,
     /// Whether surface is configured
     configured: bool,
-    /// Frame callback pending
+    /// A configure/frame callback has made this surface ready to render
     frame_pending: bool,
+    /// A compositor frame callback has been requested and has not fired yet
+    frame_callback_requested: bool,
     /// Wallpaper path waiting for first successful rendered frame
     pending_apply_path: Option<std::path::PathBuf>,
 }
@@ -714,6 +723,7 @@ fn apply_wallpaper_to_output(
             height: output_info.height as u32,
             configured: false,
             frame_pending: false,
+            frame_callback_requested: false,
             pending_apply_path: Some(path.to_path_buf()),
         },
     );
@@ -1001,6 +1011,7 @@ impl Dispatch<WlCallback, String> for EngineState {
         if let wl_callback::Event::Done { callback_data: _ } = event {
             // Frame callback triggered - mark surface ready for rendering
             if let Some(info) = state.layer_surfaces.get_mut(output_name) {
+                info.frame_callback_requested = false;
                 info.frame_pending = true;
             }
         }
