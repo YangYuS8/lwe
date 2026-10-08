@@ -138,6 +138,8 @@ GitHub `main` 及其发布标签是权威源码与构建源。CNB `Nesoriel/lwe`
 
 `Sync CNB` workflow 在 GitHub `main` 推送时镜像代码。两条发布 workflow 在 GitHub release 发布后，以 reusable job 传入 `release_tag` 和 `expected_source_sha`，不依赖 `GITHUB_TOKEN` 产生的 release 事件。`workflow_dispatch` 可回填单个 `release_tag`，或通过 `deploy_docs=true` 显式请求文档 API 触发器。
 
+CNB 写入共用不取消任务的 GitHub 队列（`queue: max`）。CI 严格检查该队列声明，只精确排除固定 actionlint 版本不支持队列字段的误报；其他 workflow 保持完整检查。上传后核对 CNB 服务端 SHA-256 和大小；旧附件没有 SHA-256 时下载文件校验。
+
 GitHub 仓库 Secret `CNB_TOKEN` 使用限定到 `Nesoriel/lwe` 的长期 CNB 个人访问令牌（PAT），所需权限为：
 
 - `repo-code:rw`；
