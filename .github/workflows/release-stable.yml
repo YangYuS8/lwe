@@ -282,3 +282,15 @@ jobs:
             "lwe: update to ${{ needs.build-release.outputs.version }}" \
             "lwe: update to ${{ needs.build-release.outputs.version }}" \
             dist/archlinuxcn-lwe-pr.md
+
+  publish-cnb:
+    needs:
+      - build-release
+      - publish-release
+    uses: ./.github/workflows/sync-cnb.yml
+    permissions:
+      contents: read
+    with:
+      release_tag: ${{ github.ref_name }}
+      expected_source_sha: ${{ needs.build-release.outputs.source_sha }}
+    secrets: inherit

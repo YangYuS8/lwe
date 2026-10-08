@@ -132,6 +132,27 @@ python3 scripts/validate-appimage.py --appdir path/to/LWE.AppDir
 
 回归套件覆盖正常包，以及缺失、断链、绝对路径或越界的图标链接。测试样本通过不能替代真实发布产物验证或真实桌面验收。
 
+## GitHub 到 CNB 的单向镜像
+
+GitHub `main` 及其发布标签是权威源码与构建源。CNB `Nesoriel/lwe` 仅作为代码和发布的单向镜像。CNB 仓库设置为 `auto_trigger=false`；`.cnb.yml` 只保留用于 EdgeOne 文档部署的 `api_trigger_docs`。CNB 不重复运行 Quality Check、Rust 或安装包构建。
+
+`Sync CNB` workflow 在 GitHub `main` 推送时镜像代码。两条发布 workflow 在 GitHub release 发布后，以 reusable job 传入 `release_tag` 和 `expected_source_sha`，不依赖 `GITHUB_TOKEN` 产生的 release 事件。`workflow_dispatch` 可回填单个 `release_tag`，或通过 `deploy_docs=true` 显式请求文档 API 触发器。
+
+CNB 写入共用不取消任务的 GitHub 队列（`queue: max`）。CI 严格检查该队列声明，只精确排除固定 actionlint 版本不支持队列字段的误报；其他 workflow 保持完整检查。上传后核对 CNB 服务端 SHA-256 和大小；旧附件没有 SHA-256 时下载文件校验。
+
+GitHub 仓库 Secret `CNB_TOKEN` 使用限定到 `Nesoriel/lwe` 的长期 CNB 个人访问令牌（PAT），所需权限为：
+
+- `repo-code:rw`；
+- `repo-release:rw`；
+- `repo-cnb-trigger:rw`；
+- `repo-manage:r`。
+
+本机 OAuth 令牌有效期为八小时，不适合长期 CI。管理员在本机完成一次性 CNB 仓库设置；CI 不授予仓库管理写权限。令牌值不得进入源码、日志或发布说明。
+
+保留 GitHub tag 对象，并核验其源码提交与 `expected_source_sha` 一致；不得改写 tag 或强制更新 CNB `main`，后者只允许快进。公开 GitHub release 附件原样同步，核对两侧 `.deb`、`.rpm` 和 `.AppImage` 的 SHA-256，CNB 附件以 `ttl=0` 永久保留。重跑时补齐缺失内容、跳过相同的已有附件，拒绝同名但不同内容的附件。任何同步或校验失败都必须保持为失败的运行结果。
+
+源码变更不能证明镜像或 EdgeOne 部署已上线。合并并执行 workflow 后，应读回 CNB 提交、tag 对象、发布附件及哈希；文档触发和部署结果单独报告。
+
 ## 发布冒烟清单
 
 发布稳定标签或合并到 `main` 触发预发布前，先验证该操作将触发的发布路径：
