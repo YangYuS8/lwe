@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -345,10 +346,24 @@ class CnbClient:
             or current.get("is_latest") != latest
         ):
             self.request("PATCH", release_path, final_fields)
-            current = self.request("GET", release_path)
-        if not isinstance(current, dict) or current.get("tag_name") != tag or (
-            any(current.get(key) != final_fields[key] for key in ("name", "body", "draft", "prerelease"))
-            or current.get("is_latest") != latest
-        ):
-            raise CnbError("CNB release publication readback failed")
-        return current
+        for attempt in range(12):
+            current = self.request("GET", "/releases/tags/" + encoded_tag)
+            if (
+                not isinstance(current, dict) or current.get("tag_name") != tag
+                or any(not isinstance(current.get(key), bool) for key in ("draft", "prerelease", "is_latest"))
+                or any(not isinstance(current.get(key), str) for key in ("name", "body"))
+                or not isinstance(current.get("assets"), list)
+            ):
+                raise CnbError("Invalid CNB release publication readback")
+            if (
+                all(current[key] == final_fields[key] for key in ("name", "body", "draft", "prerelease"))
+                and current["is_latest"] == latest
+            ):
+                listed = {a.get("name"): a for a in current["assets"] if isinstance(a, dict)}
+                if all(name in listed for name in expected):
+                    for name, (size, sha256) in expected.items():
+                        _server_hash_matches(listed[name], size, sha256)
+                    return current
+            if attempt < 11:
+                time.sleep(2)
+        raise CnbError("CNB release publication readback failed after 12 attempts")

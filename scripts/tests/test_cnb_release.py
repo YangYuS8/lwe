@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 import urllib.error
 
 
@@ -41,12 +41,21 @@ class FakeCnb(CnbClient):
         self.server_hash = False
         self.hash_override = None
         self.downloads = []
+        self.publication_patch = False
+        self.stale_final_readbacks = 0
+        self.invalid_final_readback = False
 
     def request(self, method, path, data=None, allow_not_found=False):
         self.calls.append((method, path, copy.deepcopy(data)))
         if path.startswith("/git/tags/"):
             return {"commit": {"sha": self.source_sha}}
         if method == "GET":
+            if self.publication_patch and path.startswith("/releases/tags/"):
+                if self.invalid_final_readback:
+                    return {"tag_name": self.github["tag_name"]}
+                if self.stale_final_readbacks:
+                    self.stale_final_readbacks -= 1
+                    return {**copy.deepcopy(self.remote), "draft": True}
             return copy.deepcopy(self.remote)
         if method == "POST" and path == "/releases":
             self.remote = {**data, "id": "release-1", "assets": [], "is_latest": False}
@@ -54,6 +63,7 @@ class FakeCnb(CnbClient):
         if method == "PATCH":
             self.remote.update(data)
             self.remote["is_latest"] = data["make_latest"] == "true"
+            self.publication_patch = data["draft"] is False
             return None
         if path.endswith("/asset-upload-url"):
             name = data["asset_name"]
@@ -202,6 +212,38 @@ class ReleaseTests(unittest.TestCase):
         self.publish()
         self.assertEqual(self.client.downloads, [])
         self.assertTrue(all(method == "GET" for method, _, _ in self.client.calls))
+
+    @patch("cnb_release.time.sleep")
+    def test_publication_waits_for_one_stale_tag_readback_without_repatch(self, sleep):
+        self.client.stale_final_readbacks = 1
+        result = self.publish()
+        self.assertFalse(result["draft"])
+        sleep.assert_called_once_with(2)
+        patches = [call for call in self.client.calls if call[0] == "PATCH"]
+        self.assertEqual(len(patches), 1)
+        patch_index = self.client.calls.index(patches[0])
+        self.assertEqual([path for method, path, _ in self.client.calls[patch_index + 1:]],
+                         ["/releases/tags/v0.9.11"] * 2)
+
+    @patch("cnb_release.time.sleep")
+    def test_persistent_publication_mismatch_stops_after_twelve_reads(self, sleep):
+        self.client.stale_final_readbacks = 12
+        with self.assertRaisesRegex(CnbError, "after 12 attempts"):
+            self.publish()
+        self.assertEqual(sleep.call_count, 11)
+        self.assertTrue(all(call.args == (2,) for call in sleep.call_args_list))
+        patches = [call for call in self.client.calls if call[0] == "PATCH"]
+        self.assertEqual(len(patches), 1)
+        patch_index = self.client.calls.index(patches[0])
+        self.assertEqual([path for method, path, _ in self.client.calls[patch_index + 1:]],
+                         ["/releases/tags/v0.9.11"] * 12)
+
+    @patch("cnb_release.time.sleep")
+    def test_unknown_publication_readback_fails_without_retry(self, sleep):
+        self.client.invalid_final_readback = True
+        with self.assertRaisesRegex(CnbError, "Invalid CNB release publication"):
+            self.publish()
+        sleep.assert_not_called()
 
     def test_server_sha_conflict_stops_without_download_or_overwrite(self):
         self.client.server_hash = True
