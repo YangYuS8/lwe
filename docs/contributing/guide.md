@@ -118,7 +118,7 @@ For documentation-only changes, `pnpm docs:build` and `git diff --check` are the
 
 Both release workflows read `.tauri-cli-version`, include it in the CLI cache key, and verify `cargo-tauri` after restoring the cache. A cached binary with a different version must be replaced and checked before building.
 
-Release bundles are built on Ubuntu 22.04 to keep their glibc requirements compatible with the AppImage catalog test host. Keep release CLI and Rust caches separate from builds on newer distributions; static metadata validation alone does not prove that an AppImage can launch on the oldest supported system. Quality CI runs checksum-verified actionlint against every workflow.
+AppImages are built on Ubuntu 22.04 to keep their glibc requirements compatible with the AppImage catalog test host. Native deb/rpm packages use Ubuntu 24.04 to retain the libmpv.so.2 ABI used by Arch packages. Release CLI and Rust caches are separated by distribution; static metadata validation alone does not prove that an AppImage can launch on the oldest supported system. Quality CI runs checksum-verified actionlint against every workflow.
 
 AppImage validation requires Python 3, `unsquashfs` (from squashfs-tools), `file`, and `desktop-file-validate` (from desktop-file-utils):
 

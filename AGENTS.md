@@ -86,7 +86,7 @@ Use the contributor guide's isolated test command and real-desktop checklist to 
 - Do not commit generated outputs (`build/`, `.svelte-kit/`, `target/`, `src-tauri/gen/`, `docs/.vitepress/dist/`) or local credentials. Keep application lockfiles tracked.
 - `Cargo.toml` is the workspace version source. Stable X.Y.Z bumps use `scripts/sync-version.sh` (requires `makepkg`); prerelease versions are derived by release workflows. Verify AUR `PKGBUILD`/`.SRCINFO` against the selected channel.
 - Stable and prerelease workflows verify the exact Cargo CLI after cache restore and validate every AppImage before uploading release artifacts. Keep `.DirIcon` and the desktop icon usable without paths from the build machine; do not bypass the gate by repairing a built package in place.
-- Build release bundles on the Ubuntu 22.04 baseline and isolate their caches from newer distributions. Keep workflow syntax validation in Quality CI; valid YAML alone does not validate GitHub Actions expressions.
+- Build AppImages on Ubuntu 22.04 and native deb/rpm packages on Ubuntu 24.04 to retain the libmpv.so.2 ABI used by Arch packages. Keep caches separated by distribution. Keep workflow syntax validation in Quality CI; valid YAML alone does not validate GitHub Actions expressions.
 - Successful Quality Check runs for pushes to `main` trigger prereleases; `v*` tags trigger stable releases. Treat these pushes and release dispatches as publishing actions, not local validation.
 - Keep these instructions accurate when commands, contracts, or support boundaries change. Add directory-specific instructions only when that area needs distinct rules; keep detailed procedures in the relevant docs.
 

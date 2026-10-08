@@ -12,6 +12,7 @@ pkgbase = lwe
 	depends = gtk3
 	depends = hicolor-icon-theme
 	depends = libsoup
+	depends = mpv
 	depends = pango
 	depends = webkit2gtk-4.1
 	provides = lwe
