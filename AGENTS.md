@@ -24,13 +24,15 @@ Read the entry points and callers needed for the task; use these references when
 
 ## Run locally
 
-Use Node.js 24 (matching CI), pnpm pinned by `package.json`, Rust stable, and the Linux Tauri/mpv development libraries listed in `.github/workflows/quality-check.yml`. Desktop development also requires the Tauri 2 Cargo CLI (`cargo install tauri-cli --version '^2' --locked` if missing).
+Use Node.js 24 (matching CI), pnpm pinned by `package.json`, the Rust toolchain pinned by `rust-toolchain.toml`, and the Linux Tauri/mpv development libraries listed in `.github/workflows/quality-check.yml`. `Cargo.toml` records the minimum supported Rust version separately. `.tauri-cli-version` is the sole Cargo CLI version source; run `./scripts/ensure-tauri-cli.sh` to install or verify that exact version in `target/tauri-cli` by default. Set `CARGO_INSTALL_ROOT` to customize the location and add its `bin/` directory to `PATH`.
 
 From the repository root:
 
 ```bash
 pnpm install --frozen-lockfile
 pnpm exec svelte-kit sync
+./scripts/ensure-tauri-cli.sh
+export PATH="$PWD/target/tauri-cli/bin:$PATH"
 pnpm tauri:dev
 ```
 
@@ -54,7 +56,7 @@ Choose checks by the affected behavior and its callers. Add or update regression
 | Frontend only | `pnpm check`, `pnpm test`, `pnpm build` |
 | A single Rust crate | `cargo fmt --all -- --check`, `cargo clippy -p <crate> --all-targets -- -D warnings`, `cargo test -p <crate>`; check affected dependent crates too |
 | Broad maintenance, cross-layer contracts, shared dependencies or build/workspace changes | Full CI set below |
-| Packaging/release automation | Validate the affected scripts/workflow and package metadata; use the contributor guide's release smoke checklist |
+| Packaging/release automation | Run the packaging regressions and validate the actual AppImage with `scripts/validate-appimage.py`; validate affected workflows/package metadata and use the contributor guide's release smoke checklist |
 
 Build docs whenever maintained documentation changes. After a fresh install, run `pnpm exec svelte-kit sync` before frontend type checks, as CI does.
 
@@ -69,9 +71,10 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo check --workspace
 cargo test --workspace
+python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 ```
 
-`scripts/quick-check.sh` covers frontend types plus Rust fmt/clippy/check. `scripts/pre-push-check.sh` runs the full set; `SKIP_TESTS=1` skips only Rust tests and is not full validation.
+`scripts/quick-check.sh` covers frontend types plus Rust fmt/clippy/check. `scripts/pre-push-check.sh` runs the eight frontend/docs/Rust checks above; run packaging regressions separately. `SKIP_TESTS=1` skips only Rust tests and is not full validation.
 
 Real desktop tests are opt-in: they apply/clear wallpapers and write session state. Run them only when the task calls for desktop acceptance and a suitable Wayland + `niri` session, monitors, GPU/EGL, mpv, Steam Workshop content, and video assets are available:
 
@@ -86,6 +89,7 @@ Use the contributor guide's real-desktop checklist to verify visible application
 - Review the diff, fix failures introduced by the change, and report what changed, checks run, and any unverified behavior or pre-existing blockers. Complete the authorized delivery steps.
 - Do not commit generated outputs (`build/`, `.svelte-kit/`, `target/`, `src-tauri/gen/`, `docs/.vitepress/dist/`) or local credentials. Keep application lockfiles tracked.
 - `Cargo.toml` is the workspace version source. Stable X.Y.Z bumps use `scripts/sync-version.sh` (requires `makepkg`); prerelease versions are derived by release workflows. Verify AUR `PKGBUILD`/`.SRCINFO` against the selected channel.
+- Stable and prerelease workflows verify the exact Cargo CLI after cache restore and validate every AppImage before uploading release artifacts. Keep `.DirIcon` and the desktop icon usable without paths from the build machine; do not bypass the gate by repairing a built package in place.
 - Successful Quality Check runs for pushes to `main` trigger prereleases; `v*` tags trigger stable releases. Treat these pushes and release dispatches as publishing actions, not local validation.
 - Keep these instructions accurate when commands, contracts, or support boundaries change. Add directory-specific instructions only when that area needs distinct rules; keep detailed procedures in the relevant docs.
 

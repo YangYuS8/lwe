@@ -55,6 +55,10 @@ Linux release artifacts include `.deb`, `.rpm`, and `.AppImage` builds.
 
 The workspace version source is `Cargo.toml`. Prerelease versions are derived by release automation from the base version, GitHub Actions run number, and short commit SHA.
 
+### v0.9.10 packaging repair
+
+The v0.9.10 packaging work repairs AppImage icon links and updates the supported build toolchain. `.tauri-cli-version` pins the CLI for both release channels, `rust-toolchain.toml` pins the Rust build toolchain, and the upload gate checks the actual AppImage before publishing. Check GitHub Releases for version availability. Public artifact validation, installation checks on `niri`, and AppImage directory retesting are separate release steps. The runtime support scope remains video wallpapers on Wayland with `niri`.
+
 ## Documentation model
 
 All maintained documentation belongs under `docs/` and is published as a VitePress site. User-facing documentation must exist in both English and Simplified Chinese.

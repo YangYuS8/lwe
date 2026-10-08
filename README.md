@@ -12,7 +12,7 @@
 
 # LWE
 
-English | [简体中文](README_CN.md)
+English | [简体中文](README.zh-Hans.md)
 
 LWE is a Linux desktop app for browsing, managing, and applying Wallpaper Engine content.
 

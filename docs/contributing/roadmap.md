@@ -29,6 +29,7 @@ For v1, LWE targets:
 | v0.9.7 | Workshop browsing polish | Released: Workshop navigation, cached search restoration, and sparse result layouts are smoother. |
 | v0.9.8 | Background power profile | Released: runtime and background refresh paths reduce unnecessary work, reuse warm snapshots, and expose lightweight snapshot diagnostics. |
 | v0.9.9 | Wayland capability groundwork | Released: Wayland protocol capabilities decide dynamic wallpaper availability, with graceful fallback when required protocols are missing. |
+| v0.9.10 | AppImage packaging repair | Reproducible CLI/toolchain selection and validation before publishing. |
 | v1.0.0-rc.1 | First release candidate | Scope is frozen and validated end-to-end. |
 | v1.0.0-rc.2 | Optional blocker-fix candidate | Only if rc.1 finds release blockers. |
 | v1.0.0 | Stable v1 | Honest, reliable video-first release. |
@@ -372,6 +373,25 @@ Must not claim:
 - that app shell startup compatibility implies dynamic wallpaper runtime compatibility;
 - scene/web runtime support;
 - that every Wayland compositor exposing layer-shell is automatically verified.
+
+## v0.9.10: AppImage packaging repair
+
+Theme: repair AppImage packaging and make release validation reproducible. Check GitHub Releases for availability; record desktop and public artifact acceptance separately for each release.
+
+Deliverables:
+
+- Upgrade the Tauri and frontend maintenance dependencies without changing the product scope; pin the Rust build toolchain and use `.tauri-cli-version` as the sole Cargo CLI version source.
+- Verify the exact CLI after cache restore in stable and prerelease workflows.
+- Reject invalid AppImage `.DirIcon`, desktop entries, and icon links before publishing artifacts; cover the validator and CLI selection with lightweight regressions.
+- Publish a stable patch release only after the required checks, validate its public AppImage, and request AppImage directory retesting against that version.
+
+Acceptance criteria:
+
+- Full Quality Check and packaging regressions pass on the release commit; `.deb`, `.rpm`, and `.AppImage` build successfully.
+- The built and downloaded public AppImage both pass package validation without links to the build machine.
+- Installation, window/tray behavior, Workshop/Library IPC, and video apply/clear/restore are checked separately on `niri` with isolated configuration.
+- Upstream AppImage directory tests select the new stable artifact and pass; directory inclusion still depends on upstream review.
+- Video on Wayland with `niri` remains the documented verified target; the toolchain update does not imply new Scene/Web or compositor support.
 
 ## v1.0.0-rc.1: first release candidate
 
