@@ -143,6 +143,11 @@ impl WallpaperSession {
         height: i32,
         force_frame_poll: bool,
     ) -> Result<bool> {
+        // A failed cleanup must be retried before replacing its existing EGL surface.
+        if self.state == PlaybackState::Stopped && self.egl_window.is_some() {
+            return Ok(false);
+        }
+
         // Lazy initialization
         if !self.initialized {
             self.initialize_resources(egl_context, wl_surface, width, height)?;
@@ -270,6 +275,14 @@ impl WallpaperSession {
         self.state
     }
 
+    /// Whether the current resources can accept a wallpaper hot-swap.
+    pub fn can_reuse_resources(&self) -> bool {
+        self.initialized
+            && self.player.is_some()
+            && self.egl_window.is_some()
+            && matches!(self.state, PlaybackState::Playing | PlaybackState::Paused)
+    }
+
     /// Get output name
     pub fn output_name(&self) -> &str {
         &self.output_info.name
@@ -277,6 +290,9 @@ impl WallpaperSession {
 
     /// Release MPV and EGL resources before destroying this session's Wayland surface.
     pub fn cleanup_egl(&mut self, egl_context: &crate::egl::EglContext) -> Result<()> {
+        self.state = PlaybackState::Stopped;
+        self.initialized = false;
+
         // libmpv's render context must be freed with the same GL context current.
         if self.player.is_some() {
             let egl_window = self
@@ -294,8 +310,6 @@ impl WallpaperSession {
             egl_context.destroy_surface(egl_window)?;
         }
         self.egl_window = None;
-        self.initialized = false;
-        self.state = PlaybackState::Stopped;
         Ok(())
     }
 }

@@ -580,6 +580,7 @@ fn handle_command(cmd: EngineCommand, state: &mut EngineState) {
             let active_wallpapers = state
                 .sessions
                 .iter()
+                .filter(|(_, session)| session.can_reuse_resources())
                 .map(|(name, session)| {
                     (
                         name.clone(),
@@ -639,22 +640,19 @@ fn apply_wallpaper_to_output(
     qh: &QueueHandle<EngineState>,
 ) -> Result<()> {
     // Check if we can reuse existing layer surface (hot-swap optimization)
-    if let Some(surface_info) = state.layer_surfaces.get(output_name)
-        && surface_info.configured
+    if let (Some(surface_info), Some(session)) = (
+        state.layer_surfaces.get_mut(output_name),
+        state.sessions.get_mut(output_name),
+    ) && surface_info.configured
+        && session.can_reuse_resources()
     {
-        // Layer surface exists and is configured - just update the video source
-        if let (Some(surface_info), Some(session)) = (
-            state.layer_surfaces.get_mut(output_name),
-            state.sessions.get_mut(output_name),
-        ) {
-            info!(
-                "Hot-swapping wallpaper for {} (reusing surface)",
-                output_name
-            );
-            session.load_new_wallpaper(path)?;
-            surface_info.pending_apply_path = Some(path.to_path_buf());
-            return Ok(());
-        }
+        info!(
+            "Hot-swapping wallpaper for {} (reusing surface)",
+            output_name
+        );
+        session.load_new_wallpaper(path)?;
+        surface_info.pending_apply_path = Some(path.to_path_buf());
+        return Ok(());
     }
 
     // Get output info
