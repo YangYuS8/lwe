@@ -25,7 +25,7 @@ describe('library page render', () => {
 
     expect(body).toContain('Your local library');
     expect(body).toContain('Browse the content you already own or have synchronized onto this machine.');
-    expect(body).not.toContain('No Library items are available in the current snapshot.');
+    expect(body).not.toContain('No local wallpapers yet. Subscribe to Wallpaper Engine items in Steam, then refresh your Library after Steam downloads them.');
     expect(body).not.toContain('Select a Library item to inspect its current detail payload.');
   });
 
@@ -218,7 +218,7 @@ describe('library page render', () => {
     expect(body).toContain('内容库');
     expect(body).toContain('本地内容库');
     expect(body).toContain('浏览这台设备上已经拥有或已同步的内容。');
-    expect(body).toContain('当前快照中没有可用的内容项。');
+    expect(body).toContain('暂时没有本地壁纸。请在 Steam 订阅 Wallpaper Engine 创意工坊项目，等待 Steam 下载完成后刷新内容库。');
     expect(body).toContain('内容详情');
     expect(body).toContain('选择一个内容项以查看当前详情。');
   });

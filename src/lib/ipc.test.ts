@@ -11,6 +11,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 import {
   applyLibraryItemToMonitor,
   clearLibraryItemFromMonitor,
+  loadLibraryPage,
   searchWorkshopOnline,
   updateSettings
 } from './ipc';
@@ -31,6 +32,19 @@ describe('ipc desktop flow bridge', () => {
     expect(invoke).toHaveBeenNthCalledWith(2, 'clear_library_item_from_monitor', {
       monitorId: 'DISPLAY-1'
     });
+  });
+});
+
+describe('ipc request errors', () => {
+  it('preserves a Rust string rejection as an Error for page diagnostics', async () => {
+    invoke.mockRejectedValueOnce('Failed to read libraryfolders.vdf');
+    await expect(loadLibraryPage()).rejects.toThrow('Failed to read libraryfolders.vdf');
+  });
+
+  it('preserves an existing Error instance', async () => {
+    const failure = new Error('IPC transport unavailable');
+    invoke.mockRejectedValueOnce(failure);
+    await expect(loadLibraryPage()).rejects.toBe(failure);
   });
 });
 

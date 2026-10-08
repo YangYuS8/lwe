@@ -60,7 +60,7 @@ describe('library page state', () => {
     ).toEqual({
       issueMessages: ['Monitor discovery is unavailable.', 'Desktop assignments are unavailable.'],
       emptyMessage:
-        'No Library items are available in the current snapshot. Desktop assignment data is currently unavailable.'
+        'No local wallpapers yet. Subscribe to Wallpaper Engine items in Steam, then refresh your Library after Steam downloads them. Desktop assignment data is currently unavailable.'
     });
   });
 
@@ -77,7 +77,21 @@ describe('library page state', () => {
       }, libraryCopy)
     ).toEqual({
       issueMessages: [],
-      emptyMessage: 'No Library items are available in the current snapshot.'
+      emptyMessage: 'No local wallpapers yet. Subscribe to Wallpaper Engine items in Steam, then refresh your Library after Steam downloads them.'
     });
   });
 });
+
+for (const language of ['en', 'zh-CN'] as const) {
+  it(`explains the supported desktop session in ${language} while keeping Library available`, () => {
+    const copy = getCopyForLanguage(language).library;
+    const state = resolveLibraryPageState({
+      items: [], selectedItemId: null, monitorsAvailable: false,
+      monitorDiscoveryIssue: 'niri_session_required',
+      desktopAssignmentsAvailable: true, desktopAssignmentIssue: null, stale: false
+    }, copy);
+    expect(state.issueMessages).toEqual([copy.niriSessionRequired]);
+    expect(state.emptyMessage).toContain(copy.empty);
+    expect(state.issueMessages.join(' ')).not.toContain('niri_session_required');
+  });
+}

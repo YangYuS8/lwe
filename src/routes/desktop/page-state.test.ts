@@ -91,3 +91,15 @@ describe('desktop page state', () => {
     });
   });
 });
+
+for (const language of ['en', 'zh-CN'] as const) {
+  it(`explains an unsupported desktop session in ${language}`, () => {
+    const copy = getCopyForLanguage(language);
+    const state = resolveDesktopPageState({
+      monitors: [], missingMonitorRestores: [], restoreIssues: [],
+      monitorsAvailable: false, monitorDiscoveryIssue: 'niri_session_required',
+      assignmentsAvailable: true, persistenceIssue: null, stale: false
+    }, copy);
+    expect(state.issueMessages).toEqual([copy.desktop.niriSessionRequired]);
+  });
+}
