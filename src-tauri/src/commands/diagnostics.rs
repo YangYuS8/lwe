@@ -1,7 +1,8 @@
+use crate::commands::background::run_desktop_blocking;
 use crate::models::DiagnosticsSnapshot;
 use crate::services::diagnostics_service::DiagnosticsService;
 
 #[tauri::command]
-pub fn load_diagnostics() -> Result<DiagnosticsSnapshot, String> {
-    DiagnosticsService::load_snapshot()
+pub async fn load_diagnostics() -> Result<DiagnosticsSnapshot, String> {
+    run_desktop_blocking(DiagnosticsService::load_snapshot).await
 }

@@ -1,29 +1,38 @@
 use crate::action_outcome::ActionOutcome;
 use crate::assembly::action_outcome::assemble_desktop_apply_outcome;
 use crate::assembly::desktop_page::assemble_desktop_page;
+use crate::commands::background::run_desktop_blocking;
 use crate::models::DesktopPageSnapshot;
 use crate::services::desktop_service::DesktopService;
 
 #[tauri::command]
-pub fn load_desktop_page() -> Result<DesktopPageSnapshot, String> {
-    DesktopService::load_page().map(assemble_desktop_page)
+pub async fn load_desktop_page() -> Result<DesktopPageSnapshot, String> {
+    run_desktop_blocking(|| DesktopService::load_page().map(assemble_desktop_page)).await
 }
 
 #[tauri::command]
-pub fn apply_library_item_to_monitor(
+pub async fn apply_library_item_to_monitor(
     monitor_id: String,
     item_id: String,
 ) -> Result<ActionOutcome<()>, String> {
-    Ok(assemble_desktop_apply_outcome(
-        DesktopService::apply_to_monitor(&monitor_id, &item_id)?,
-    ))
+    run_desktop_blocking(move || {
+        Ok(assemble_desktop_apply_outcome(
+            DesktopService::apply_to_monitor(&monitor_id, &item_id)?,
+        ))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn clear_library_item_from_monitor(monitor_id: String) -> Result<ActionOutcome<()>, String> {
-    Ok(assemble_desktop_apply_outcome(
-        DesktopService::clear_monitor(&monitor_id)?,
-    ))
+pub async fn clear_library_item_from_monitor(
+    monitor_id: String,
+) -> Result<ActionOutcome<()>, String> {
+    run_desktop_blocking(move || {
+        Ok(assemble_desktop_apply_outcome(
+            DesktopService::clear_monitor(&monitor_id)?,
+        ))
+    })
+    .await
 }
 
 #[cfg(test)]
