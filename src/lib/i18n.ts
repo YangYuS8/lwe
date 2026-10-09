@@ -16,6 +16,13 @@ type CopyFormatValue = string | number;
 
 const dictionaries = {
   en: {
+    actionFeedback: {
+      failed: 'The action could not be completed.',
+      completed: 'The action completed.',
+      refreshFailed: 'The action completed, but the latest data could not be loaded: {error}',
+      retry: 'Retry',
+      retryRefresh: 'Retry refresh'
+    },
     appShell: {
       skipToContent: 'Skip to content',
       appDescription: 'A persistent shell for library, workshop, desktop, and settings workflows.',
@@ -73,6 +80,7 @@ const dictionaries = {
       jumpToPage: 'Jump to',
       goToPage: 'Go',
       onlineResults: 'Online results',
+      retainedResults: 'Showing the last successful results. Retry to load the requested search.',
       noOnlineResults: 'No matching online Workshop items were found for the current filters.',
       missingApiKeySettingsHint: 'Online Workshop search needs a Steam Web API key. Open Settings and fill in Steam Web API Key, then return here to search.',
       onlineResultAcquisitionNote: 'Online results are discovery only. Use Steam to subscribe or synchronize content; a visible search result does not mean it is already local.',
@@ -327,6 +335,13 @@ const dictionaries = {
     }
   },
   'zh-CN': {
+    actionFeedback: {
+      failed: '操作未能完成。',
+      completed: '操作已完成。',
+      refreshFailed: '操作已完成，但无法加载最新数据：{error}',
+      retry: '重试',
+      retryRefresh: '重新刷新'
+    },
     appShell: {
       skipToContent: '跳到内容',
       appDescription: '一个常驻的外壳应用，用于串联内容库、创意工坊、桌面和设置流程。',
@@ -383,6 +398,7 @@ const dictionaries = {
       jumpToPage: '跳转到',
       goToPage: '前往',
       onlineResults: '在线结果',
+      retainedResults: '正在显示上次成功加载的结果。请重试以加载本次搜索。',
       noOnlineResults: '当前筛选条件下没有匹配的在线工坊项目。',
       missingApiKeySettingsHint: '在线工坊搜索需要 Steam Web API 密钥。请打开设置并填写 Steam Web API Key，然后返回这里搜索。',
       onlineResultAcquisitionNote: '在线结果仅用于发现内容。订阅或同步仍需要通过 Steam 完成；搜索结果可见并不代表内容已经在本机。',

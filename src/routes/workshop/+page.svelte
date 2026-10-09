@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { actionOutcomeError } from '$lib/action-outcome';
 import type { WorkshopOnlineSearchResult } from '$lib/types';
 import PageHeader from '$lib/layout/PageHeader.svelte';
-import { copy } from '$lib/i18n';
+import { copy, formatCopy } from '$lib/i18n';
 import { Button } from '$lib/ui/button';
 import * as Select from '$lib/ui/select';
   import {
@@ -21,6 +22,7 @@ import * as Select from '$lib/ui/select';
   } from '$lib/ipc';
   import {
     setCurrentPage,
+    applyInvalidations,
     pageCache,
     setLibrarySnapshot,
     setWorkshopOnlineCache,
@@ -40,6 +42,9 @@ import * as Select from '$lib/ui/select';
 
   let pageError: string | null = null;
   let refreshLoading = false;
+  let localRefreshError: string | null = null;
+  let localRefreshMessage: string | null = null;
+  let steamActions: Record<string, { pending: boolean; error: string | null; message: string | null }> = {};
   let onlineSearchTimer: ReturnType<typeof setTimeout> | null = null;
   let onlineSearchRequestToken = 0;
   let onlineSearchLoading = false;
@@ -58,6 +63,7 @@ import * as Select from '$lib/ui/select';
   ];
 let onlineSearchResult: WorkshopOnlineSearchResult | null = initialOnlineSearchCache.result;
 let onlineSearchPage = initialOnlineSearchCache.result?.page ?? 1;
+let onlineSearchRetryPage = onlineSearchPage;
 let onlineSearchPageSize = initialOnlineSearchCache.pageSize;
 let onlineSearchPageSizeValue = String(initialOnlineSearchCache.pageSize);
 let initialOnlineSearchLoading = false;
@@ -94,21 +100,43 @@ const pageCount = (result: WorkshopOnlineSearchResult | null) => {
   const loadLibraryMarkers = async () => {
     try {
       setLibrarySnapshot(await loadLibraryPage());
-    } catch {
-      // Online discovery still works when local Library markers cannot be loaded.
+      return null;
+    } catch (error) {
+      return readError(error);
+    }
+  };
+
+  const retryLocalMarkers = async () => {
+    if (refreshLoading) return;
+    refreshLoading = true;
+    try {
+      const error = await loadLibraryMarkers();
+      localRefreshError = error
+        ? formatCopy($copy.actionFeedback.refreshFailed, { error })
+        : null;
+    } finally {
+      refreshLoading = false;
     }
   };
 
   const refreshLocalWorkshop = async () => {
+    if (refreshLoading) return;
     refreshLoading = true;
     pageError = null;
+    localRefreshError = null;
+    localRefreshMessage = null;
 
     try {
       const outcome = await refreshWorkshopCatalog();
+      applyInvalidations(outcome.invalidations);
+      pageError = actionOutcomeError(outcome, $copy.actionFeedback.failed);
+      if (pageError) return;
       if (outcome.currentUpdate) {
         setWorkshopSnapshot(outcome.currentUpdate);
       }
-      await loadLibraryMarkers();
+      localRefreshMessage = outcome.message ?? $copy.actionFeedback.completed;
+      const error = await loadLibraryMarkers();
+      if (error) localRefreshError = formatCopy($copy.actionFeedback.refreshFailed, { error });
     } catch (error) {
       pageError = readError(error);
     } finally {
@@ -146,6 +174,7 @@ const runOnlineSearch = async (options?: { page?: number }) => {
   onlineSearchLoading = true;
   onlineSearchError = null;
     const requestedPage = options?.page ?? 1;
+    onlineSearchRetryPage = requestedPage;
 
     try {
       const result = await searchWorkshopOnline({
@@ -206,7 +235,6 @@ const runOnlineSearch = async (options?: { page?: number }) => {
   }
 
   ensureNonEmptyFilters();
-  onlineSearchPage = 1;
   jumpToPageValue = '1';
 
     onlineSearchTimer = setTimeout(() => {
@@ -221,7 +249,6 @@ const runOnlineSearch = async (options?: { page?: number }) => {
   }
 
   ensureNonEmptyFilters();
-  onlineSearchPage = 1;
   jumpToPageValue = '1';
   await runOnlineSearch({ page: 1 });
   };
@@ -262,10 +289,21 @@ const runOnlineSearch = async (options?: { page?: number }) => {
   };
 
   const openOnlineItemInSteam = async (workshopId: string) => {
+    if (steamActions[workshopId]?.pending) return;
+    steamActions = { ...steamActions, [workshopId]: { pending: true, error: null, message: null } };
     try {
-      await openWorkshopInSteam(workshopId);
+      const outcome = await openWorkshopInSteam(workshopId);
+      applyInvalidations(outcome.invalidations);
+      const error = actionOutcomeError(outcome, $copy.actionFeedback.failed);
+      steamActions = {
+        ...steamActions,
+        [workshopId]: { pending: false, error, message: error ? null : outcome.message }
+      };
     } catch (error) {
-      onlineSearchError = readError(error);
+      steamActions = {
+        ...steamActions,
+        [workshopId]: { pending: false, error: readError(error), message: null }
+      };
     }
   };
 
@@ -352,6 +390,13 @@ const runOnlineSearch = async (options?: { page?: number }) => {
     <p class="lwe-info-banner" role="status" aria-live="polite">
       {$copy.workshop.localMarkersCount.replace('{count}', String(libraryItemCount))}
     </p>
+    {#if localRefreshMessage}
+      <p class="lwe-info-banner" role="status" aria-live="polite">{localRefreshMessage}</p>
+    {/if}
+    {#if localRefreshError}
+      <p class="lwe-warning-banner" role="alert" aria-live="assertive">{localRefreshError}</p>
+      <Button variant="outline" onclick={retryLocalMarkers} disabled={refreshLoading}>{$copy.actionFeedback.retryRefresh}</Button>
+    {/if}
   </section>
 
   <section class="lwe-panel gap-4">
@@ -409,7 +454,6 @@ const runOnlineSearch = async (options?: { page?: number }) => {
                   if (onlineSearchAgeRatings.length === 0) {
                     onlineSearchAgeRatings = ['g'];
                   }
-                  onlineSearchResult = null;
                   scheduleOnlineSearch();
                 }}
               />
@@ -429,7 +473,6 @@ const runOnlineSearch = async (options?: { page?: number }) => {
                   if (onlineSearchAgeRatings.length === 0) {
                     onlineSearchAgeRatings = ['pg_13'];
                   }
-                  onlineSearchResult = null;
                   scheduleOnlineSearch();
                 }}
               />
@@ -449,7 +492,6 @@ const runOnlineSearch = async (options?: { page?: number }) => {
                   if (onlineSearchAgeRatings.length === 0) {
                     onlineSearchAgeRatings = ['r_18'];
                   }
-                  onlineSearchResult = null;
                   scheduleOnlineSearch();
                 }}
               />
@@ -475,7 +517,6 @@ const runOnlineSearch = async (options?: { page?: number }) => {
                   if (onlineSearchItemTypes.length === 0) {
                     onlineSearchItemTypes = ['video'];
                   }
-                  onlineSearchResult = null;
                   scheduleOnlineSearch();
                 }}
               />
@@ -495,7 +536,6 @@ const runOnlineSearch = async (options?: { page?: number }) => {
                   if (onlineSearchItemTypes.length === 0) {
                     onlineSearchItemTypes = ['scene'];
                   }
-                  onlineSearchResult = null;
                   scheduleOnlineSearch();
                 }}
               />
@@ -515,7 +555,6 @@ const runOnlineSearch = async (options?: { page?: number }) => {
                   if (onlineSearchItemTypes.length === 0) {
                     onlineSearchItemTypes = ['web'];
                   }
-                  onlineSearchResult = null;
                   scheduleOnlineSearch();
                 }}
               />
@@ -535,7 +574,6 @@ const runOnlineSearch = async (options?: { page?: number }) => {
                   if (onlineSearchItemTypes.length === 0) {
                     onlineSearchItemTypes = ['application'];
                   }
-                  onlineSearchResult = null;
                   scheduleOnlineSearch();
                 }}
               />
@@ -543,6 +581,23 @@ const runOnlineSearch = async (options?: { page?: number }) => {
             </label>
           </div>
         </fieldset>
+      </div>
+    {/if}
+
+    {#if onlineSearchError}
+      <div class="grid gap-2" role="alert" aria-live="assertive">
+        <p class="lwe-warning-banner">{onlineSearchError}</p>
+        {#if onlineSearchResult}
+          <p class="text-sm text-muted-foreground">{$copy.workshop.retainedResults}</p>
+        {/if}
+        {#if isMissingSteamApiKeyError(onlineSearchError)}
+          <a class="lwe-info-banner text-sm font-medium" href="/settings">
+            {$copy.workshop.missingApiKeySettingsHint}
+          </a>
+        {/if}
+        <Button variant="outline" onclick={() => runOnlineSearch({ page: onlineSearchRetryPage })} disabled={onlineSearchLoading}>
+          {$copy.actionFeedback.retry}
+        </Button>
       </div>
     {/if}
 
@@ -555,15 +610,6 @@ const runOnlineSearch = async (options?: { page?: number }) => {
             <div class="h-9 w-28 rounded bg-muted"></div>
           </div>
         {/each}
-      </div>
-    {:else if onlineSearchError}
-      <div class="grid gap-2" role="alert" aria-live="assertive">
-        <p class="lwe-warning-banner">{onlineSearchError}</p>
-        {#if isMissingSteamApiKeyError(onlineSearchError)}
-          <a class="lwe-info-banner text-sm font-medium" href="/settings">
-            {$copy.workshop.missingApiKeySettingsHint}
-          </a>
-        {/if}
       </div>
     {:else if onlineSearchResult}
       <div class="grid gap-2">
@@ -603,9 +649,15 @@ const runOnlineSearch = async (options?: { page?: number }) => {
                     {onlineRuntimeDescription(item.itemType)}
                   </p>
                 </div>
-                <Button variant="outline" onclick={() => openOnlineItemInSteam(item.id)}>
+                <Button variant="outline" onclick={() => openOnlineItemInSteam(item.id)} disabled={steamActions[item.id]?.pending ?? false}>
                   {$copy.components.workshopDetail.openInSteam}
                 </Button>
+                {#if steamActions[item.id]?.error}
+                  <p class="lwe-warning-banner lwe-wrap-safe" role="alert" aria-live="assertive">{steamActions[item.id].error}</p>
+                {/if}
+                {#if steamActions[item.id]?.message}
+                  <p class="lwe-info-banner lwe-wrap-safe" role="status" aria-live="polite">{steamActions[item.id].message}</p>
+                {/if}
               </div>
             {/each}
           </div>
@@ -632,7 +684,6 @@ const runOnlineSearch = async (options?: { page?: number }) => {
                 onValueChange={(value) => {
                   onlineSearchPageSize = Number(value);
                   onlineSearchPageSizeValue = value;
-                  onlineSearchPage = 1;
                   jumpToPageValue = '1';
                   void runOnlineSearch({ page: 1 });
                 }}

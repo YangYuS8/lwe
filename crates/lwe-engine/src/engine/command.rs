@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use lwe_core::OutputInfo;
 
@@ -12,11 +13,18 @@ use crate::mpv::VideoConfig;
 pub enum EngineCommand {
     /// Apply wallpaper to output(s)
     ApplyWallpaper {
+        /// Unique application request generation
+        request_id: u64,
+        /// Latest time at which the first rendered frame may be accepted
+        deadline: Instant,
         /// Path to video/image file
         path: PathBuf,
         /// Target output (None = all outputs)
         output: Option<String>,
     },
+
+    /// Cancel only the application generation still owning this output
+    CancelApply { request_id: u64, output: String },
 
     /// Clear wallpaper from output(s)
     ClearWallpaper {
@@ -77,10 +85,26 @@ pub enum EngineEvent {
 
     /// Wallpaper applied successfully
     WallpaperApplied {
+        /// Application request that produced this first frame
+        request_id: u64,
         /// Output name
         output: String,
         /// Wallpaper path
         path: PathBuf,
+    },
+
+    /// An application request failed on a specific output
+    ApplyFailed {
+        request_id: u64,
+        output: String,
+        reason: String,
+    },
+
+    /// Cancellation was processed, including any resource-release failure
+    ApplyCancelled {
+        request_id: u64,
+        output: String,
+        result: Result<(), String>,
     },
 
     /// Wallpaper cleared
@@ -88,6 +112,9 @@ pub enum EngineEvent {
         /// Output name
         output: String,
     },
+
+    /// A non-application operation failed on a specific output
+    OutputError { output: String, reason: String },
 
     /// Error occurred
     Error(String),

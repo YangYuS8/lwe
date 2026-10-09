@@ -2,6 +2,7 @@ use crate::action_outcome::ActionOutcome;
 use crate::assembly::action_outcome::assemble_workshop_refresh_outcome;
 use crate::assembly::workshop_detail::assemble_workshop_detail;
 use crate::assembly::workshop_page::assemble_workshop_page;
+use crate::commands::background::run_blocking;
 use crate::models::{
     WorkshopItemDetail, WorkshopOnlineSearchInput, WorkshopOnlineSearchResult, WorkshopPageSnapshot,
 };
@@ -16,44 +17,56 @@ fn steam_openurl(workshop_id: &str) -> String {
 }
 
 #[tauri::command]
-pub fn load_workshop_page() -> Result<WorkshopPageSnapshot, String> {
-    let result =
-        WorkshopService::load_catalog_snapshot().or_else(|_| WorkshopService::refresh_catalog())?;
-    Ok(assemble_workshop_page(&result))
+pub async fn load_workshop_page() -> Result<WorkshopPageSnapshot, String> {
+    run_blocking(|| {
+        let result = WorkshopService::load_catalog_snapshot()
+            .or_else(|_| WorkshopService::refresh_catalog())?;
+        Ok(assemble_workshop_page(&result))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn load_workshop_item_detail(workshop_id: String) -> Result<WorkshopItemDetail, String> {
-    Ok(assemble_workshop_detail(WorkshopService::inspect_item(
-        &workshop_id,
-    )?))
+pub async fn load_workshop_item_detail(workshop_id: String) -> Result<WorkshopItemDetail, String> {
+    run_blocking(move || {
+        Ok(assemble_workshop_detail(WorkshopService::inspect_item(
+            &workshop_id,
+        )?))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn refresh_workshop_catalog() -> Result<ActionOutcome<WorkshopPageSnapshot>, String> {
-    Ok(assemble_workshop_refresh_outcome(
-        &WorkshopService::refresh_catalog()?,
-    ))
+pub async fn refresh_workshop_catalog() -> Result<ActionOutcome<WorkshopPageSnapshot>, String> {
+    run_blocking(|| {
+        Ok(assemble_workshop_refresh_outcome(
+            &WorkshopService::refresh_catalog()?,
+        ))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn search_workshop_online(
+pub async fn search_workshop_online(
     input: WorkshopOnlineSearchInput,
 ) -> Result<WorkshopOnlineSearchResult, String> {
-    WorkshopService::search_online(input)
+    run_blocking(move || WorkshopService::search_online(input)).await
 }
 
 #[tauri::command]
-pub fn open_workshop_in_steam(workshop_id: String) -> Result<ActionOutcome<()>, String> {
-    open::that_detached(steam_openurl(&workshop_id)).map_err(|error| error.to_string())?;
+pub async fn open_workshop_in_steam(workshop_id: String) -> Result<ActionOutcome<()>, String> {
+    run_blocking(move || {
+        open::that_detached(steam_openurl(&workshop_id)).map_err(|error| error.to_string())?;
 
-    Ok(ActionOutcome {
-        ok: true,
-        message: Some("Opened item in Steam".to_string()),
-        shell_patch: None,
-        current_update: None,
-        invalidations: Vec::new(),
+        Ok(ActionOutcome {
+            ok: true,
+            message: Some("Opened item in Steam".to_string()),
+            shell_patch: None,
+            current_update: None,
+            invalidations: Vec::new(),
+        })
     })
+    .await
 }
 
 #[cfg(test)]

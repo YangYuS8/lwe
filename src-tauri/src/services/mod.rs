@@ -1,4 +1,5 @@
 pub mod app_shell_service;
+pub(crate) mod atomic_file;
 pub mod autostart_service;
 pub mod backends;
 pub mod compatibility_service;
@@ -9,5 +10,6 @@ pub mod library_service;
 pub mod monitor_service;
 pub mod settings_persistence_service;
 pub mod settings_service;
+pub(crate) mod startup_restore;
 pub mod wayland_capability_service;
 pub mod workshop_service;

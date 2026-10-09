@@ -24,6 +24,16 @@ export type LibraryCopy = {
   desktopAssignmentDataUnavailable: string;
 };
 
+export const retainLibrarySelection = (
+  snapshot: LibraryPageSnapshot,
+  selectedItemId: string | null
+): LibraryPageSnapshot => ({
+  ...snapshot,
+  selectedItemId: selectedItemId && snapshot.items.some((item) => item.id === selectedItemId)
+    ? selectedItemId
+    : snapshot.selectedItemId
+});
+
 export const resolveLibraryApplyRefreshState = ({
   invalidations,
   selectedItemId,

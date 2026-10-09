@@ -20,6 +20,9 @@
   export let applying = false;
   export let applyError: string | null = null;
   export let applyMessage: string | null = null;
+  export let refreshError: string | null = null;
+  export let onRetryRefresh: (() => void) | undefined = undefined;
+  export let onRetryDetail: (() => void) | undefined = undefined;
   export let onApply: (() => void) | undefined = undefined;
   export let onMonitorChange: ((monitorId: string) => void) | undefined = undefined;
 
@@ -33,18 +36,21 @@
   $: detailItemTypeLabel = detail ? getItemTypeLabel($copy, detail.itemType) : '';
 </script>
 
-<Card class="lwe-panel">
-  {#if loading}
+<Card class="lwe-panel" aria-busy={loading}>
+  {#if error}
+    <div class="lwe-subpanel justify-items-start gap-2">
+      <p class="lwe-eyebrow">{libraryDetailCopy.title}</p>
+      <p class="lwe-warning-banner lwe-wrap-safe" role="alert" aria-live="assertive">{error}</p>
+      <Button variant="outline" onclick={onRetryDetail} disabled={loading}>{$copy.actionFeedback.retry}</Button>
+    </div>
+  {/if}
+  {#if loading && detail}
+    <p class="text-sm text-muted-foreground" role="status" aria-live="polite">{libraryDetailCopy.loading}</p>
+  {/if}
+  {#if loading && !detail}
     <div class="lwe-subpanel gap-3" role="status" aria-live="polite">
       <p class="lwe-eyebrow">{libraryDetailCopy.title}</p>
       <p class="text-sm leading-6 text-muted-foreground">{libraryDetailCopy.loading}</p>
-    </div>
-  {:else if error}
-    <div class="lwe-subpanel gap-3">
-      <p class="lwe-eyebrow">{libraryDetailCopy.title}</p>
-      <p class="lwe-warning-banner lwe-wrap-safe" role="alert" aria-live="assertive">
-        {error}
-      </p>
     </div>
   {:else if detail}
     <div class="grid min-w-0 gap-4" data-detail-layout="compact-vertical">
@@ -104,7 +110,7 @@
               name="libraryMonitor"
               value={selectedMonitorId}
               onValueChange={(value) => onMonitorChange?.(value)}
-              disabled={monitors.length === 0 || Boolean(applyUnsupportedMessage)}
+              disabled={applying || monitors.length === 0 || Boolean(applyUnsupportedMessage)}
             >
               <Select.Trigger aria-label={libraryDetailCopy.applyTargetMonitor}>
                 {selectedMonitorId
@@ -139,6 +145,11 @@
 
         {#if applyMessage}
           <p class="lwe-info-banner" role="status" aria-live="polite">{applyMessage}</p>
+        {/if}
+
+        {#if refreshError}
+          <p class="lwe-warning-banner lwe-wrap-safe" role="alert" aria-live="assertive">{refreshError}</p>
+          <Button variant="outline" onclick={onRetryRefresh} disabled={applying}>{$copy.actionFeedback.retryRefresh}</Button>
         {/if}
       </section>
 
@@ -185,7 +196,7 @@
         </div>
       </section>
     </div>
-  {:else}
+  {:else if !error}
     <div class="grid gap-4">
       {#if issueMessages.length}
         <div class="grid gap-2.5" aria-live="polite">

@@ -1,28 +1,35 @@
 use crate::assembly::library_detail::assemble_library_detail;
 use crate::assembly::library_page::assemble_library_page;
+use crate::commands::background::run_desktop_blocking;
 use crate::models::{LibraryItemDetail, LibraryPageSnapshot};
 use crate::services::desktop_service::DesktopService;
 use crate::services::library_service::LibraryService;
 
 #[tauri::command]
-pub fn load_library_page() -> Result<LibraryPageSnapshot, String> {
-    let projection = LibraryService::load_projection_snapshot()
-        .or_else(|_| LibraryService::load_projection())?;
-    let desktop = DesktopService::load_page_with_projection(Ok(projection.clone()))?;
+pub async fn load_library_page() -> Result<LibraryPageSnapshot, String> {
+    run_desktop_blocking(|| {
+        let projection = LibraryService::load_projection_snapshot()
+            .or_else(|_| LibraryService::load_projection())?;
+        let desktop = DesktopService::load_page_with_projection(Ok(projection.clone()))?;
 
-    Ok(assemble_library_page(projection, &desktop))
+        Ok(assemble_library_page(projection, &desktop))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn load_library_item_detail(item_id: String) -> Result<LibraryItemDetail, String> {
-    let projection = LibraryService::load_projection_snapshot()
-        .or_else(|_| LibraryService::load_projection())?;
-    let desktop = DesktopService::load_page_with_projection(Ok(projection.clone()))?;
+pub async fn load_library_item_detail(item_id: String) -> Result<LibraryItemDetail, String> {
+    run_desktop_blocking(move || {
+        let projection = LibraryService::load_projection_snapshot()
+            .or_else(|_| LibraryService::load_projection())?;
+        let desktop = DesktopService::load_page_with_projection(Ok(projection.clone()))?;
 
-    Ok(assemble_library_detail(
-        LibraryService::inspect_item_in_projection(&projection, &item_id)?,
-        &desktop,
-    ))
+        Ok(assemble_library_detail(
+            LibraryService::inspect_item_in_projection(&projection, &item_id)?,
+            &desktop,
+        ))
+    })
+    .await
 }
 
 #[cfg(test)]

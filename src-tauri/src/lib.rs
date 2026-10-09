@@ -152,11 +152,15 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
                 let _ = window.hide();
             }
 
-            if let Err(reason) =
-                crate::services::desktop_service::DesktopService::restore_saved_assignments()
-            {
-                eprintln!("desktop restore failed during startup: {reason}");
-            }
+            let restore_completion = crate::services::startup_restore::begin()?;
+            tauri::async_runtime::spawn_blocking(move || {
+                let _completion = restore_completion;
+                if let Err(reason) =
+                    crate::services::desktop_service::DesktopService::restore_saved_assignments()
+                {
+                    eprintln!("desktop restore failed during startup: {reason}");
+                }
+            });
 
             Ok(())
         })

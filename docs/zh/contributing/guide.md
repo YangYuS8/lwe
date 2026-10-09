@@ -112,6 +112,10 @@ Quality Check 还运行轻量打包回归：
 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 ```
 
+前端测试包含服务端渲染和模拟 DOM 中的真实组件交互；`pnpm test` 会运行两个测试项目。单独检查时可使用 `pnpm test --project server` 或 `pnpm test --project interaction`。交互测试模拟 IPC，并点击实际挂载的组件；覆盖业务失败（`ActionOutcome.ok=false`）、IPC 拒绝，以及动作成功后刷新数据失败。失败后保留已有内容，区分重新加载数据与重复执行已经成功的动作。
+
+Tauri 命令通过 `commands/background.rs` 在后台执行同步服务逻辑。依赖桌面状态的命令会等待后台启动恢复完成，写入操作在服务层串行执行。会话和设置使用私有临时文件后原子替换；持久化测试必须验证部分写入或替换失败时旧文件仍然有效。网络错误脱敏测试使用虚构 API key 和本地 HTTP 测试服务。
+
 对于仅文档变更，`pnpm docs:build` 和 `git diff --check` 是必需验证项。
 
 ## 打包验证

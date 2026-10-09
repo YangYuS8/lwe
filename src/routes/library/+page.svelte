@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import type { InvalidatedPage } from '$lib/types';
+  import { actionOutcomeError } from '$lib/action-outcome';
   import ItemCard from '$lib/components/ItemCard.svelte';
   import LibraryDetailPanel from '$lib/components/LibraryDetailPanel.svelte';
   import PageHeader from '$lib/layout/PageHeader.svelte';
@@ -27,7 +29,7 @@
     setLibrarySnapshot,
     setSelectedItem
   } from '$lib/stores/ui';
-  import { resolveLibraryApplyRefreshState, resolveLibraryPageState } from './page-state';
+  import { resolveLibraryApplyRefreshState, resolveLibraryPageState, retainLibrarySelection } from './page-state';
 
   const readError = (error: unknown) =>
     error instanceof Error ? error.message : $copy.library.requestError;
@@ -38,6 +40,8 @@
   let detailError: string | null = null;
   let applyError: string | null = null;
   let applyMessage: string | null = null;
+  let applyRefreshError: string | null = null;
+  let pendingRefreshInvalidations: InvalidatedPage[] = [];
   let applyLoading = false;
   let applyMonitorId = '';
   let detailRequestToken = 0;
@@ -87,8 +91,8 @@
     }
   }
 
-  const ensurePage = async () => {
-    if (!needsPageLoad('library')) {
+  const ensurePage = async (force = false) => {
+    if (loading || (!force && !needsPageLoad('library'))) {
       return;
     }
 
@@ -96,7 +100,7 @@
     pageError = null;
 
     try {
-      setLibrarySnapshot(await loadLibraryPage());
+      setLibrarySnapshot(retainLibrarySelection(await loadLibraryPage(), get(pageCache).library.snapshot?.selectedItemId ?? null));
     } catch (error) {
       pageError = readError(error);
     } finally {
@@ -117,17 +121,18 @@
 
   const ensureDesktopSnapshot = async () => {
     if (!needsPageLoad('desktop')) {
-      return;
+      return null;
     }
 
     try {
       setDesktopSnapshot(await loadDesktopPage());
-    } catch {
-      // Keep the primary action visible even if monitor discovery fails.
+      return null;
+    } catch (error) {
+      return readError(error);
     }
   };
 
-  const loadSelectedDetail = async (itemId: string) => {
+  const loadSelectedDetail = async (itemId: string, reportError = true) => {
     const requestToken = ++detailRequestToken;
     detailLoading = true;
     detailError = null;
@@ -135,17 +140,19 @@
     try {
       const detail = await loadLibraryItemDetail(itemId);
       if (requestToken !== detailRequestToken) {
-        return;
+        return null;
       }
 
       setLibraryDetailIfSelected(detail, itemId);
+      return null;
     } catch (error) {
       if (requestToken !== detailRequestToken || !isSelectedItem('library', itemId)) {
-        return;
+        return null;
       }
 
-      setLibraryDetailIfSelected(null, itemId);
-      detailError = readError(error);
+      const message = readError(error);
+      if (reportError) detailError = message;
+      return message;
     } finally {
       if (requestToken === detailRequestToken) {
         detailLoading = false;
@@ -154,42 +161,53 @@
   };
 
   const refreshInvalidatedPages = async (invalidations: InvalidatedPage[]) => {
-    let refreshedSelectedItemId = snapshot?.selectedItemId ?? null;
+    const errors: string[] = [];
     let librarySnapshotRefreshSucceeded = true;
     const initialRefreshState = resolveLibraryApplyRefreshState({
       invalidations,
-      selectedItemId: refreshedSelectedItemId
+      selectedItemId: snapshot?.selectedItemId ?? null
     });
 
     if (initialRefreshState.refreshLibrarySnapshot) {
       try {
         const refreshedSnapshot = await loadLibraryPage();
-        setLibrarySnapshot(refreshedSnapshot);
-        refreshedSelectedItemId = refreshedSnapshot.selectedItemId;
+        setLibrarySnapshot(retainLibrarySelection(refreshedSnapshot, get(pageCache).library.snapshot?.selectedItemId ?? null));
+        pageError = null;
       } catch (error) {
         librarySnapshotRefreshSucceeded = false;
-
-        const message = readError(error);
-        if (snapshot) {
-          applyError = message;
-        } else {
-          pageError = message;
-        }
+        errors.push(readError(error));
       }
     }
 
     const refreshState = resolveLibraryApplyRefreshState({
       invalidations,
-      selectedItemId: refreshedSelectedItemId,
+      selectedItemId: get(pageCache).library.snapshot?.selectedItemId ?? null,
       librarySnapshotRefreshSucceeded
     });
 
     if (refreshState.refreshLibraryDetailId) {
-      await loadSelectedDetail(refreshState.refreshLibraryDetailId);
+      const error = await loadSelectedDetail(refreshState.refreshLibraryDetailId, false);
+      if (error) errors.push(error);
     }
 
     if (refreshState.refreshDesktopSnapshot) {
-      await ensureDesktopSnapshot();
+      const error = await ensureDesktopSnapshot();
+      if (error) errors.push(error);
+    }
+
+    applyRefreshError = errors.length
+      ? formatCopy($copy.actionFeedback.refreshFailed, { error: errors.join(' • ') })
+      : null;
+    pendingRefreshInvalidations = errors.length ? invalidations : [];
+  };
+
+  const retryApplyRefresh = async () => {
+    if (applyLoading) return;
+    applyLoading = true;
+    try {
+      await refreshInvalidatedPages(pendingRefreshInvalidations);
+    } finally {
+      applyLoading = false;
     }
   };
 
@@ -197,23 +215,28 @@
     setSelectedItem('library', itemId);
     applyError = null;
     applyMessage = null;
+    applyRefreshError = null;
+    pendingRefreshInvalidations = [];
 
     await loadSelectedDetail(itemId);
   };
 
   const applySelectedItem = async () => {
-    if (!selectedDetail || !applyMonitorId) {
+    if (applyLoading || !selectedDetail || !applyMonitorId) {
       return;
     }
 
     applyLoading = true;
     applyError = null;
     applyMessage = null;
+    applyRefreshError = null;
 
     try {
       const outcome = await applyLibraryItemToMonitor(applyMonitorId, selectedDetail.id);
-      applyMessage = outcome.message;
       applyInvalidations(outcome.invalidations);
+      applyError = actionOutcomeError(outcome, $copy.actionFeedback.failed);
+      if (applyError) return;
+      applyMessage = outcome.message ?? $copy.actionFeedback.completed;
       await refreshInvalidatedPages(outcome.invalidations);
     } catch (error) {
       applyError = readError(error);
@@ -223,14 +246,22 @@
   };
 
   const refreshLibraryFromWorkshop = async () => {
+    if (loading) return;
     loading = true;
     pageError = null;
+    let catalogRefreshSucceeded = false;
 
     try {
-      await refreshWorkshopCatalog();
-      setLibrarySnapshot(await loadLibraryPage());
+      const outcome = await refreshWorkshopCatalog();
+      applyInvalidations(outcome.invalidations);
+      pageError = actionOutcomeError(outcome, $copy.actionFeedback.failed);
+      if (pageError) return;
+      catalogRefreshSucceeded = true;
+      setLibrarySnapshot(retainLibrarySelection(await loadLibraryPage(), get(pageCache).library.snapshot?.selectedItemId ?? null));
     } catch (error) {
-      pageError = readError(error);
+      pageError = catalogRefreshSucceeded
+        ? formatCopy($copy.actionFeedback.refreshFailed, { error: readError(error) })
+        : readError(error);
     } finally {
       loading = false;
     }
@@ -295,17 +326,18 @@
     {/snippet}
   </PageHeader>
 
-  {#if pageError && !snapshot}
-    <p class="lwe-warning-banner" role="alert" aria-live="assertive">{pageError}</p>
-  {:else if loading && !snapshot}
+  {#if pageError}
+    <div class="grid justify-items-start gap-2">
+      <p class="lwe-warning-banner" role="alert" aria-live="assertive">{pageError}</p>
+      <Button variant="outline" onclick={() => ensurePage(true)} disabled={loading}>{$copy.actionFeedback.retry}</Button>
+    </div>
+  {/if}
+
+  {#if loading && !snapshot}
     <p class="text-sm text-muted-foreground" role="status" aria-live="polite">{$copy.library.loading}</p>
   {:else if snapshot}
     <div class="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.9fr)] xl:items-start">
       <section class="grid gap-4">
-        {#if pageError}
-          <p class="lwe-warning-banner" role="alert" aria-live="assertive">{pageError}</p>
-        {/if}
-
         {#if pageState?.issueMessages.length}
           <div class="grid gap-2.5" aria-live="polite">
             {#each pageState.issueMessages as issue}
@@ -502,6 +534,11 @@
         applying={applyLoading}
         {applyError}
         applyMessage={applyMessage}
+        refreshError={applyRefreshError}
+        onRetryRefresh={retryApplyRefresh}
+        onRetryDetail={() => {
+          if (snapshot?.selectedItemId) void loadSelectedDetail(snapshot.selectedItemId);
+        }}
         onApply={applySelectedItem}
         onMonitorChange={(monitorId) => {
           applyMonitorId = monitorId;
