@@ -9,8 +9,33 @@ use crate::services::settings_persistence_service::SettingsPersistenceService;
 use lwe_library::{SteamLibrary, WorkshopCatalogEntry, WorkshopScanner};
 use serde_json::Value;
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 static WORKSHOP_REFRESH_CACHE: OnceLock<Mutex<Option<WorkshopRefreshResult>>> = OnceLock::new();
+static WORKSHOP_REFRESH_LOCK: Mutex<()> = Mutex::new(());
+static STEAM_HTTP_CLIENT: OnceLock<Result<reqwest::blocking::Client, String>> = OnceLock::new();
+const STEAM_QUERY_FILES_URL: &str =
+    "https://api.steampowered.com/IPublishedFileService/QueryFiles/v1/";
+const STEAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const STEAM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn steam_http_error(context: &str, error: reqwest::Error) -> String {
+    // Steam sends the API key in its query string. Never return that URL to IPC or logs.
+    format!("{context}: {}", error.without_url())
+}
+
+fn steam_http_client() -> Result<&'static reqwest::blocking::Client, String> {
+    STEAM_HTTP_CLIENT
+        .get_or_init(|| {
+            reqwest::blocking::Client::builder()
+                .connect_timeout(STEAM_CONNECT_TIMEOUT)
+                .timeout(STEAM_REQUEST_TIMEOUT)
+                .build()
+                .map_err(|error| steam_http_error("Failed to initialize Steam HTTP client", error))
+        })
+        .as_ref()
+        .map_err(|error| error.clone())
+}
 
 fn workshop_refresh_cache() -> &'static Mutex<Option<WorkshopRefreshResult>> {
     WORKSHOP_REFRESH_CACHE.get_or_init(|| Mutex::new(None))
@@ -367,23 +392,34 @@ impl WorkshopService {
         input: WorkshopOnlineSearchInput,
     ) -> Result<WorkshopOnlineSearchResult, String> {
         let api_key = Self::load_steam_web_api_key()?;
+        Self::search_online_with_client(
+            steam_http_client()?,
+            STEAM_QUERY_FILES_URL,
+            &api_key,
+            input,
+        )
+    }
+
+    fn search_online_with_client(
+        client: &reqwest::blocking::Client,
+        endpoint: &str,
+        api_key: &str,
+        input: WorkshopOnlineSearchInput,
+    ) -> Result<WorkshopOnlineSearchResult, String> {
         let query = input.query.trim().to_string();
         let (page, page_size) = Self::normalized_pagination(&input);
-        let client = reqwest::blocking::Client::new();
-        let mut request = client
-            .get("https://api.steampowered.com/IPublishedFileService/QueryFiles/v1/")
-            .query(&[
-                ("key", api_key.as_str()),
-                ("appid", "431960"),
-                ("page", &page.to_string()),
-                ("numperpage", &page_size.to_string()),
-                ("return_tags", "1"),
-                ("return_metadata", "1"),
-                ("return_previews", "1"),
-                ("return_short_description", "1"),
-                ("return_vote_data", "1"),
-                ("return_for_sale_data", "1"),
-            ]);
+        let mut request = client.get(endpoint).query(&[
+            ("key", api_key),
+            ("appid", "431960"),
+            ("page", &page.to_string()),
+            ("numperpage", &page_size.to_string()),
+            ("return_tags", "1"),
+            ("return_metadata", "1"),
+            ("return_previews", "1"),
+            ("return_short_description", "1"),
+            ("return_vote_data", "1"),
+            ("return_for_sale_data", "1"),
+        ]);
 
         if !query.is_empty() {
             request = request.query(&[("search_text", query.as_str())]);
@@ -391,14 +427,16 @@ impl WorkshopService {
 
         let response = request
             .send()
-            .map_err(|error| format!("Failed to call Steam Workshop QueryFiles: {error}"))?;
+            .map_err(|error| steam_http_error("Failed to call Steam Workshop QueryFiles", error))?;
 
         let payload = response
             .error_for_status()
-            .map_err(|error| format!("Steam Workshop QueryFiles returned an error: {error}"))?
+            .map_err(|error| {
+                steam_http_error("Steam Workshop QueryFiles returned an error", error)
+            })?
             .json::<Value>()
             .map_err(|error| {
-                format!("Failed to parse Steam Workshop QueryFiles response: {error}")
+                steam_http_error("Failed to parse Steam Workshop QueryFiles response", error)
             })?;
 
         let total_approx = Self::parse_total_results(&payload);
@@ -438,7 +476,17 @@ impl WorkshopService {
     }
 
     pub fn refresh_catalog() -> Result<WorkshopRefreshResult, String> {
-        let mut assessed = CompatibilityService::assess_catalog_entries(Self::scan_catalog()?);
+        Self::refresh_catalog_with_scan(Self::scan_catalog)
+    }
+
+    fn refresh_catalog_with_scan(
+        scan: impl FnOnce() -> Result<Vec<WorkshopCatalogEntry>, String>,
+    ) -> Result<WorkshopRefreshResult, String> {
+        // Serialize scanning through publication so an older scan cannot overwrite a newer one.
+        let _guard = WORKSHOP_REFRESH_LOCK
+            .lock()
+            .map_err(|_| "Steam Workshop catalog refresh is unavailable".to_string())?;
+        let mut assessed = CompatibilityService::assess_catalog_entries(scan()?);
 
         for entry in &mut assessed {
             if entry.project_metadata.inferred_age_rating.is_none() {
@@ -481,12 +529,185 @@ impl WorkshopService {
 
 #[cfg(test)]
 mod tests {
-    use super::WorkshopService;
-    use crate::models::{WorkshopAgeRating, WorkshopOnlineItemType};
+    use super::{WORKSHOP_REFRESH_LOCK, WorkshopService, steam_http_client};
+    use crate::models::{WorkshopAgeRating, WorkshopOnlineItemType, WorkshopOnlineSearchInput};
     use crate::results::workshop::WorkshopRefreshResult;
     use lwe_library::SteamLibrary;
     use serde_json::json;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+    use std::time::Duration;
     use tempfile::TempDir;
+
+    const FAKE_API_KEY: &str = "fake-steam-key-must-stay-private";
+
+    fn search_input() -> WorkshopOnlineSearchInput {
+        WorkshopOnlineSearchInput {
+            query: " wallpaper ".to_string(),
+            age_ratings: Vec::new(),
+            item_types: Vec::new(),
+            page: 1,
+            page_size: 24,
+        }
+    }
+
+    fn http_fixture(
+        status: &str,
+        body: &str,
+        delay: Duration,
+    ) -> (String, std::thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}/QueryFiles", listener.local_addr().unwrap());
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let count = stream.read(&mut buffer).unwrap();
+                if count == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..count]);
+            }
+            std::thread::sleep(delay);
+            // The timeout fixture intentionally lets the client disconnect first.
+            let _ = stream.write_all(response.as_bytes());
+            String::from_utf8(request).unwrap()
+        });
+        (endpoint, server)
+    }
+
+    fn test_http_client() -> reqwest::blocking::Client {
+        reqwest::blocking::Client::builder()
+            .no_proxy()
+            .connect_timeout(Duration::from_secs(1))
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap()
+    }
+
+    fn assert_redacted(error: &str, endpoint: &str) {
+        assert!(!error.contains(FAKE_API_KEY));
+        assert!(!error.contains("key="));
+        assert!(!error.contains(endpoint));
+    }
+
+    #[test]
+    fn steam_http_client_is_reused() {
+        assert!(std::ptr::eq(
+            steam_http_client().unwrap(),
+            steam_http_client().unwrap()
+        ));
+    }
+
+    #[test]
+    fn steam_status_error_redacts_api_key_and_preserves_status() {
+        let (endpoint, server) = http_fixture("403 Forbidden", "{}", Duration::ZERO);
+        let error = WorkshopService::search_online_with_client(
+            &test_http_client(),
+            &endpoint,
+            FAKE_API_KEY,
+            search_input(),
+        )
+        .unwrap_err();
+
+        assert!(server.join().unwrap().contains(FAKE_API_KEY));
+        assert!(error.contains("403"));
+        assert_redacted(&error, &endpoint);
+    }
+
+    #[test]
+    fn steam_response_parse_error_redacts_api_key() {
+        let (endpoint, server) = http_fixture("200 OK", "not json", Duration::ZERO);
+        let error = WorkshopService::search_online_with_client(
+            &test_http_client(),
+            &endpoint,
+            FAKE_API_KEY,
+            search_input(),
+        )
+        .unwrap_err();
+
+        assert!(server.join().unwrap().contains(FAKE_API_KEY));
+        assert!(error.contains("Failed to parse Steam Workshop QueryFiles response"));
+        assert_redacted(&error, &endpoint);
+    }
+
+    #[test]
+    fn steam_timeout_redacts_api_key_and_finishes_request() {
+        let (endpoint, server) = http_fixture("200 OK", "{}", Duration::from_millis(400));
+        let client = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_millis(200))
+            .build()
+            .unwrap();
+        let error = WorkshopService::search_online_with_client(
+            &client,
+            &endpoint,
+            FAKE_API_KEY,
+            search_input(),
+        )
+        .unwrap_err();
+
+        assert!(server.join().unwrap().contains(FAKE_API_KEY));
+        assert!(error.contains("Failed to call Steam Workshop QueryFiles"));
+        assert_redacted(&error, &endpoint);
+    }
+
+    #[test]
+    fn steam_transport_error_redacts_api_key() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}/QueryFiles", listener.local_addr().unwrap());
+        // Keep the port reserved while refusing HTTP: the peer closes its accepted stream.
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            drop(stream);
+        });
+        let error = WorkshopService::search_online_with_client(
+            &test_http_client(),
+            &endpoint,
+            FAKE_API_KEY,
+            search_input(),
+        )
+        .unwrap_err();
+
+        server.join().unwrap();
+        assert!(error.contains("Failed to call Steam Workshop QueryFiles"));
+        assert_redacted(&error, &endpoint);
+    }
+
+    #[test]
+    fn steam_success_preserves_search_result_contract() {
+        let (endpoint, server) = http_fixture(
+            "200 OK",
+            r#"{"response":{"total":25,"publishedfiledetails":[]}}"#,
+            Duration::ZERO,
+        );
+        let result = WorkshopService::search_online_with_client(
+            &test_http_client(),
+            &endpoint,
+            FAKE_API_KEY,
+            search_input(),
+        )
+        .unwrap();
+
+        let request = server.join().unwrap();
+        assert!(request.contains(FAKE_API_KEY));
+        assert!(request.contains("appid=431960"));
+        assert_eq!(result.query, "wallpaper");
+        assert_eq!(result.page, 1);
+        assert_eq!(result.page_size, 24);
+        assert_eq!(result.total_approx, Some(25));
+        assert!(result.has_more);
+        assert!(result.items.is_empty());
+    }
 
     #[test]
     fn missing_steam_returns_an_empty_catalog() {
@@ -542,7 +763,44 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_refresh_waits_until_the_previous_scan_is_published() {
+        let (first_started_tx, first_started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let first = std::thread::spawn(move || {
+            WorkshopService::refresh_catalog_with_scan(|| {
+                first_started_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+                Ok(Vec::new())
+            })
+        });
+        first_started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+
+        let (second_started_tx, second_started_rx) = mpsc::channel();
+        let second = std::thread::spawn(move || {
+            WorkshopService::refresh_catalog_with_scan(|| {
+                second_started_tx.send(()).unwrap();
+                Ok(Vec::new())
+            })
+        });
+        let started_early = second_started_rx.recv_timeout(Duration::from_millis(50));
+        release_tx.send(()).unwrap();
+        first.join().unwrap().unwrap();
+        second.join().unwrap().unwrap();
+
+        assert!(matches!(
+            started_early,
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        second_started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+    }
+
+    #[test]
     fn workshop_snapshot_cache_roundtrip_marks_snapshot_reads() {
+        let _guard = WORKSHOP_REFRESH_LOCK.lock().unwrap();
         WorkshopService::invalidate_snapshot();
 
         assert!(WorkshopService::load_catalog_snapshot().is_err());
