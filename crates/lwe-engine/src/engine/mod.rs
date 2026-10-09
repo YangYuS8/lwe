@@ -295,6 +295,9 @@ fn run_engine_thread(
             .dispatch(frame_duration, &mut state)
             .context("Event loop dispatch failed")?;
 
+        // Expire requests even before configure or while playback is power-paused.
+        expire_pending_applies(&mut state, std::time::Instant::now());
+
         // Render frames for configured layer surfaces (skip if power paused)
         if !state.power_paused {
             render_all_surfaces(&mut state);
@@ -330,9 +333,7 @@ fn render_all_surfaces(state: &mut EngineState) {
     let outputs: Vec<String> = state
         .layer_surfaces
         .iter()
-        .filter(|(_, info)| {
-            info.configured && (info.frame_pending || info.pending_apply_path.is_some())
-        })
+        .filter(|(_, info)| info.configured && (info.frame_pending || info.apply_request.pending))
         .map(|(name, _)| name.clone())
         .collect();
     let mut failed_outputs = Vec::new();
@@ -353,7 +354,7 @@ fn render_all_surfaces(state: &mut EngineState) {
             None => continue,
         };
 
-        let is_waiting_for_first_frame = surface_info.pending_apply_path.is_some();
+        let is_waiting_for_first_frame = surface_info.apply_request.pending;
 
         // Render frame
         match session.render_frame_to_surface(
@@ -364,20 +365,29 @@ fn render_all_surfaces(state: &mut EngineState) {
             is_waiting_for_first_frame,
         ) {
             Ok(true) => {
-                if let Some(path) = surface_info.pending_apply_path.take() {
-                    let _ = state.events_tx.send(EngineEvent::WallpaperApplied {
-                        output: output_name.clone(),
-                        path,
-                    });
+                if let Some(event) = surface_info
+                    .apply_request
+                    .complete(&output_name, std::time::Instant::now())
+                {
+                    // A blocking EGL swap may have passed the request deadline.
+                    let expired = matches!(&event, EngineEvent::ApplyFailed { .. });
+                    let _ = state.events_tx.send(event);
+                    if expired {
+                        failed_outputs.push(output_name);
+                        continue;
+                    }
                 }
             }
             Ok(false) => {}
             Err(e) => {
                 warn!("Frame render error for {}: {:#}", output_name, e);
-                if surface_info.pending_apply_path.take().is_some() {
-                    let _ = state.events_tx.send(EngineEvent::Error(format!(
-                        "Failed to render first frame for {output_name}: {e:#}"
-                    )));
+                if surface_info.apply_request.pending {
+                    surface_info.apply_request.pending = false;
+                    let _ = state.events_tx.send(EngineEvent::ApplyFailed {
+                        request_id: surface_info.apply_request.request_id,
+                        output: output_name.clone(),
+                        reason: format!("Failed to render first frame for {output_name}: {e:#}"),
+                    });
                     failed_outputs.push(output_name);
                     continue;
                 }
@@ -386,11 +396,17 @@ fn render_all_surfaces(state: &mut EngineState) {
 
         // The first buffer must be swapped before relying on compositor callbacks.
         // Pending apply is polled above, without accumulating callbacks while decoding.
-        if surface_info.pending_apply_path.is_none()
+        if !surface_info.apply_request.pending
             && !surface_info.frame_callback_requested
             && let Some(qh) = state.queue_handle.as_ref()
         {
-            let _callback = surface_info.wl_surface.frame(qh, output_name.clone());
+            let _callback = surface_info.wl_surface.frame(
+                qh,
+                FrameCallbackData {
+                    output_name: output_name.clone(),
+                    surface: surface_info.wl_surface.clone(),
+                },
+            );
             surface_info.frame_callback_requested = true;
             surface_info.wl_surface.commit();
         }
@@ -453,8 +469,84 @@ struct LayerSurfaceInfo {
     frame_pending: bool,
     /// A compositor frame callback has been requested and has not fired yet
     frame_callback_requested: bool,
-    /// Wallpaper path waiting for first successful rendered frame
-    pending_apply_path: Option<std::path::PathBuf>,
+    /// Current generation remains recorded after its first-frame acknowledgement
+    apply_request: ApplyRequest,
+}
+
+#[derive(Debug, Clone)]
+struct ApplyRequest {
+    request_id: u64,
+    path: std::path::PathBuf,
+    deadline: std::time::Instant,
+    pending: bool,
+}
+
+impl ApplyRequest {
+    fn new(request_id: u64, path: std::path::PathBuf, deadline: std::time::Instant) -> Self {
+        Self {
+            request_id,
+            path,
+            deadline,
+            pending: true,
+        }
+    }
+
+    fn expired(&self, now: std::time::Instant) -> bool {
+        self.pending && now >= self.deadline
+    }
+
+    fn owns(&self, request_id: u64) -> bool {
+        self.request_id == request_id
+    }
+
+    fn complete(&mut self, output: &str, now: std::time::Instant) -> Option<EngineEvent> {
+        if !self.pending {
+            return None;
+        }
+        let expired = self.expired(now);
+        self.pending = false;
+        Some(if expired {
+            EngineEvent::ApplyFailed {
+                request_id: self.request_id,
+                output: output.to_string(),
+                reason:
+                    "Wallpaper application deadline expired before the first frame was accepted"
+                        .to_string(),
+            }
+        } else {
+            EngineEvent::WallpaperApplied {
+                request_id: self.request_id,
+                output: output.to_string(),
+                path: self.path.clone(),
+            }
+        })
+    }
+}
+
+struct FrameCallbackData {
+    output_name: String,
+    surface: WlSurface,
+}
+
+fn expire_pending_applies(state: &mut EngineState, now: std::time::Instant) {
+    let expired: Vec<_> = state
+        .layer_surfaces
+        .iter()
+        .filter(|(_, info)| info.apply_request.expired(now))
+        .map(|(output, _)| output.clone())
+        .collect();
+    for output in expired {
+        if let Some(event) = state
+            .layer_surfaces
+            .get_mut(&output)
+            .and_then(|info| info.apply_request.complete(&output, now))
+        {
+            let _ = state.events_tx.send(event);
+        }
+        if let Err(error) = release_output_resources(state, &output) {
+            warn!("Failed to release expired application for {output}: {error:#}");
+        }
+    }
 }
 
 /// Pending output information during enumeration
@@ -483,7 +575,12 @@ struct PendingOutput {
 /// Handle incoming command from GUI
 fn handle_command(cmd: EngineCommand, state: &mut EngineState) {
     match cmd {
-        EngineCommand::ApplyWallpaper { path, output } => {
+        EngineCommand::ApplyWallpaper {
+            request_id,
+            deadline,
+            path,
+            output,
+        } => {
             debug!("ApplyWallpaper: {:?} to {:?}", path, output);
 
             let outputs_to_apply: Vec<String> = match output {
@@ -496,22 +593,71 @@ fn handle_command(cmd: EngineCommand, state: &mut EngineState) {
                 Some(qh) => qh,
                 None => {
                     error!("Queue handle not available");
-                    let _ = state
-                        .events_tx
-                        .send(EngineEvent::Error("Queue handle not available".to_string()));
+                    for output in outputs_to_apply {
+                        let _ = state.events_tx.send(EngineEvent::ApplyFailed {
+                            request_id,
+                            output,
+                            reason: "Queue handle not available".to_string(),
+                        });
+                    }
                     return;
                 }
             };
 
             for output_name in outputs_to_apply {
-                match apply_wallpaper_to_output(state, &path, &output_name, &qh) {
+                let request = ApplyRequest::new(request_id, path.clone(), deadline);
+                if request.expired(std::time::Instant::now()) {
+                    let _ = state.events_tx.send(EngineEvent::ApplyFailed {
+                        request_id,
+                        output: output_name,
+                        reason: "Wallpaper application deadline expired before processing"
+                            .to_string(),
+                    });
+                    continue;
+                }
+                match apply_wallpaper_to_output(state, request, &output_name, &qh) {
                     Ok(()) => {}
                     Err(e) => {
                         error!("Failed to apply wallpaper to {}: {}", output_name, e);
-                        let _ = state.events_tx.send(EngineEvent::Error(e.to_string()));
+                        let _ = state.events_tx.send(EngineEvent::ApplyFailed {
+                            request_id,
+                            output: output_name.clone(),
+                            reason: e.to_string(),
+                        });
+                        if state
+                            .layer_surfaces
+                            .get(&output_name)
+                            .is_some_and(|info| info.apply_request.owns(request_id))
+                            && let Err(error) = release_output_resources(state, &output_name)
+                        {
+                            warn!(
+                                "Failed to release rejected application for {output_name}: {error:#}"
+                            );
+                        }
                     }
                 }
             }
+        }
+
+        EngineCommand::CancelApply { request_id, output } => {
+            // Include acknowledged generations: the receiver may have timed out
+            // before observing their ACK. A stale cancellation cannot remove a retry.
+            let result = if state
+                .layer_surfaces
+                .get(&output)
+                .is_some_and(|info| info.apply_request.owns(request_id))
+            {
+                release_output_resources(state, &output)
+                    .map(|_| ())
+                    .map_err(|error| format!("Failed to cancel wallpaper application: {error:#}"))
+            } else {
+                Ok(())
+            };
+            let _ = state.events_tx.send(EngineEvent::ApplyCancelled {
+                request_id,
+                output,
+                result,
+            });
         }
 
         EngineCommand::ClearWallpaper { output } => {
@@ -532,9 +678,12 @@ fn handle_command(cmd: EngineCommand, state: &mut EngineState) {
                     }
                     Ok(_) => {}
                     Err(error) => {
-                        let _ = state.events_tx.send(EngineEvent::Error(format!(
-                            "Failed to clear wallpaper for {output_name}: {error:#}"
-                        )));
+                        let _ = state.events_tx.send(EngineEvent::OutputError {
+                            output: output_name.clone(),
+                            reason: format!(
+                                "Failed to clear wallpaper for {output_name}: {error:#}"
+                            ),
+                        });
                     }
                 }
             }
@@ -644,7 +793,7 @@ fn release_output_resources(state: &mut EngineState, output_name: &str) -> Resul
 /// Apply wallpaper to a specific output
 fn apply_wallpaper_to_output(
     state: &mut EngineState,
-    path: &std::path::Path,
+    request: ApplyRequest,
     output_name: &str,
     qh: &QueueHandle<EngineState>,
 ) -> Result<()> {
@@ -659,8 +808,8 @@ fn apply_wallpaper_to_output(
             "Hot-swapping wallpaper for {} (reusing surface)",
             output_name
         );
-        session.load_new_wallpaper(path)?;
-        surface_info.pending_apply_path = Some(path.to_path_buf());
+        surface_info.apply_request = request;
+        session.load_new_wallpaper(&surface_info.apply_request.path)?;
         return Ok(());
     }
 
@@ -724,13 +873,12 @@ fn apply_wallpaper_to_output(
             configured: false,
             frame_pending: false,
             frame_callback_requested: false,
-            pending_apply_path: Some(path.to_path_buf()),
+            apply_request: request.clone(),
         },
     );
 
     // Create wallpaper session
-    let session =
-        WallpaperSession::new(path.to_path_buf(), output_info, state.config.video.clone())?;
+    let session = WallpaperSession::new(request.path, output_info, state.config.video.clone())?;
     state.sessions.insert(output_name.to_string(), session);
 
     info!("Wallpaper session created for {}", output_name);
@@ -953,6 +1101,14 @@ impl Dispatch<ZwlrLayerSurfaceV1, String> for EngineState {
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
+        // Delayed events from a destroyed surface must not mutate its replacement.
+        if state
+            .layer_surfaces
+            .get(output_name)
+            .is_none_or(|info| info.layer_surface != *layer_surface)
+        {
+            return;
+        }
         match event {
             zwlr_layer_surface_v1::Event::Configure {
                 serial,
@@ -987,10 +1143,22 @@ impl Dispatch<ZwlrLayerSurfaceV1, String> for EngineState {
             }
             zwlr_layer_surface_v1::Event::Closed => {
                 info!("Layer surface closed for {}", output_name);
+                if let Some(info) = state.layer_surfaces.get_mut(output_name)
+                    && info.apply_request.pending
+                {
+                    info.apply_request.pending = false;
+                    let _ = state.events_tx.send(EngineEvent::ApplyFailed {
+                        request_id: info.apply_request.request_id,
+                        output: output_name.clone(),
+                        reason: "Wallpaper layer surface closed before application completed"
+                            .to_string(),
+                    });
+                }
                 if let Err(error) = release_output_resources(state, output_name) {
-                    let _ = state.events_tx.send(EngineEvent::Error(format!(
-                        "Failed to release closed output {output_name}: {error:#}"
-                    )));
+                    let _ = state.events_tx.send(EngineEvent::OutputError {
+                        output: output_name.clone(),
+                        reason: format!("Failed to release closed output {output_name}: {error:#}"),
+                    });
                 }
             }
             _ => {}
@@ -999,18 +1167,20 @@ impl Dispatch<ZwlrLayerSurfaceV1, String> for EngineState {
 }
 
 // Dispatch for frame callback
-impl Dispatch<WlCallback, String> for EngineState {
+impl Dispatch<WlCallback, FrameCallbackData> for EngineState {
     fn event(
         state: &mut Self,
         _callback: &WlCallback,
         event: wl_callback::Event,
-        output_name: &String,
+        data: &FrameCallbackData,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
         if let wl_callback::Event::Done { callback_data: _ } = event {
             // Frame callback triggered - mark surface ready for rendering
-            if let Some(info) = state.layer_surfaces.get_mut(output_name) {
+            if let Some(info) = state.layer_surfaces.get_mut(&data.output_name)
+                && info.wl_surface == data.surface
+            {
                 info.frame_callback_requested = false;
                 info.frame_pending = true;
             }
@@ -1046,4 +1216,49 @@ fn check_battery_status() -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn expired_first_frame_reports_failure_for_its_generation() {
+        let deadline = Instant::now();
+        let mut request = ApplyRequest::new(7, PathBuf::from("/tmp/video.mp4"), deadline);
+        assert!(matches!(
+            request.complete("eDP-1", deadline),
+            Some(EngineEvent::ApplyFailed { request_id: 7, output, .. }) if output == "eDP-1"
+        ));
+        assert!(request.complete("eDP-1", deadline).is_none());
+    }
+
+    #[test]
+    fn accepted_first_frame_acknowledges_once_and_remains_cancellable() {
+        let now = Instant::now();
+        let deadline = now + Duration::from_secs(1);
+        let path = PathBuf::from("/tmp/video.mp4");
+        let mut request = ApplyRequest::new(7, path.clone(), deadline);
+        assert!(matches!(
+            request.complete("eDP-1", now),
+            Some(EngineEvent::WallpaperApplied { request_id: 7, output, path: applied_path })
+                if output == "eDP-1" && applied_path == path
+        ));
+        assert!(request.complete("eDP-1", now).is_none());
+        assert!(!request.expired(deadline));
+        assert!(request.owns(7));
+    }
+
+    #[test]
+    fn same_path_retry_is_not_owned_by_old_cancellation() {
+        let path = PathBuf::from("/tmp/video.mp4");
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let old = ApplyRequest::new(7, path.clone(), deadline);
+        let retry = ApplyRequest::new(8, path, deadline);
+        assert!(old.owns(7));
+        assert!(!retry.owns(7));
+        assert!(retry.owns(8));
+    }
 }

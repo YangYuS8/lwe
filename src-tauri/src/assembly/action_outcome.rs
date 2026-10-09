@@ -86,8 +86,16 @@ pub fn assemble_desktop_apply_outcome(result: DesktopApplyResult) -> ActionOutco
             invalidations: Vec::new(),
         },
         DesktopApplyResult::BackendUnavailable { reason }
-        | DesktopApplyResult::MonitorDiscoveryUnavailable { reason }
         | DesktopApplyResult::PersistenceUnavailable { reason } => ActionOutcome {
+            ok: false,
+            message: Some(reason),
+            shell_patch: None,
+            current_update: None,
+            // A failed apply/clear may already have changed runtime resources.
+            // Preserve the visible snapshot, but do not present it as current.
+            invalidations: vec![InvalidatedPage::Desktop, InvalidatedPage::Library],
+        },
+        DesktopApplyResult::MonitorDiscoveryUnavailable { reason } => ActionOutcome {
             ok: false,
             message: Some(reason),
             shell_patch: None,
@@ -124,6 +132,23 @@ mod tests {
         assert_eq!(
             outcome.message.as_deref(),
             Some("Desktop persistence is not available yet")
+        );
+        assert_eq!(
+            outcome.invalidations,
+            vec![InvalidatedPage::Desktop, InvalidatedPage::Library]
+        );
+    }
+
+    #[test]
+    fn failed_runtime_action_invalidates_snapshots_without_claiming_success() {
+        let outcome = assemble_desktop_apply_outcome(DesktopApplyResult::BackendUnavailable {
+            reason: "Apply timed out and was cancelled".to_string(),
+        });
+        assert!(!outcome.ok);
+        assert!(outcome.current_update.is_none());
+        assert_eq!(
+            outcome.invalidations,
+            vec![InvalidatedPage::Desktop, InvalidatedPage::Library]
         );
     }
 

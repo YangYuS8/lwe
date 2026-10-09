@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -22,6 +23,7 @@ pub(crate) const LIBRARY_RESOLUTION_ISSUE_PREFIX: &str =
     "Unable to resolve desktop items against the current Library snapshot:";
 const REAL_APPLY_BACKEND: &str = "lwe_engine_wayland";
 const REAL_APPLY_BACKEND_TIMEOUT: Duration = Duration::from_secs(5);
+const APPLY_CANCELLATION_TIMEOUT: Duration = Duration::from_secs(2);
 const BACKEND_NOT_RUNNING_CLEAR_WARNING: &str =
     "Desktop runtime was not running; cleared the saved assignment only";
 
@@ -32,6 +34,34 @@ struct RunningDesktopApplyBackend {
 
 static DESKTOP_APPLY_BACKEND: OnceLock<Mutex<Option<RunningDesktopApplyBackend>>> = OnceLock::new();
 static STARTUP_RESTORE_ISSUES: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+static DESKTOP_ACTIONS: Mutex<()> = Mutex::new(());
+static NEXT_APPLY_REQUEST: AtomicU64 = AtomicU64::new(1);
+
+// Background actions and snapshots share this lock, including runtime and saved state.
+fn with_desktop_action<T>(action: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let _guard = DESKTOP_ACTIONS
+        .lock()
+        .map_err(|_| "Desktop action lock was poisoned".to_string())?;
+    action()
+}
+
+fn next_apply_request_id() -> Result<u64, String> {
+    let mut current = NEXT_APPLY_REQUEST.load(Ordering::Relaxed);
+    loop {
+        let next = current
+            .checked_add(1)
+            .ok_or_else(|| "Desktop apply request IDs were exhausted".to_string())?;
+        match NEXT_APPLY_REQUEST.compare_exchange_weak(
+            current,
+            next,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return Ok(current),
+            Err(updated) => current = updated,
+        }
+    }
+}
 
 fn desktop_apply_backend_slot() -> &'static Mutex<Option<RunningDesktopApplyBackend>> {
     DESKTOP_APPLY_BACKEND.get_or_init(|| Mutex::new(None))
@@ -59,15 +89,23 @@ impl DesktopService {
     }
 
     pub fn load_page() -> Result<DesktopPageResult, String> {
-        Self::load_page_with_projection_and_monitors(
-            LibraryService::load_projection_snapshot()
-                .or_else(|_| LibraryService::load_projection()),
-            MonitorService::list_monitors(),
-        )
+        with_desktop_action(|| {
+            Self::load_page_with_projection_and_monitors_unlocked(
+                LibraryService::load_projection_snapshot()
+                    .or_else(|_| LibraryService::load_projection()),
+                MonitorService::list_monitors(),
+            )
+        })
     }
 
     pub fn restore_saved_assignments() -> Result<(), String> {
-        let page = Self::load_page_with_projection_and_monitors(
+        with_desktop_action(Self::restore_saved_assignments_unlocked)
+    }
+
+    fn restore_saved_assignments_unlocked() -> Result<(), String> {
+        // Read after acquiring the action lock: a preceding user action may have
+        // changed saved assignments while this background restore was waiting.
+        let page = Self::load_page_with_projection_and_monitors_unlocked(
             LibraryService::load_projection_snapshot()
                 .or_else(|_| LibraryService::load_projection()),
             MonitorService::list_monitors_uncached(),
@@ -101,13 +139,16 @@ impl DesktopService {
     pub(crate) fn load_page_with_projection(
         library_projection: Result<LibraryProjection, String>,
     ) -> Result<DesktopPageResult, String> {
-        Self::load_page_with_projection_and_monitors(
-            library_projection,
-            MonitorService::list_monitors(),
-        )
+        with_desktop_action(|| {
+            Self::load_page_with_projection_and_monitors_unlocked(
+                library_projection,
+                MonitorService::list_monitors(),
+            )
+        })
     }
 
-    fn load_page_with_projection_and_monitors(
+    // Every caller already owns DESKTOP_ACTIONS; restore must not reacquire it.
+    fn load_page_with_projection_and_monitors_unlocked(
         library_projection: Result<LibraryProjection, String>,
         monitors: MonitorDiscoveryResult,
     ) -> Result<DesktopPageResult, String> {
@@ -351,7 +392,7 @@ impl DesktopService {
         let deadline = Instant::now() + REAL_APPLY_BACKEND_TIMEOUT;
 
         loop {
-            match Self::recv_backend_event(backend, deadline)? {
+            match Self::recv_backend_event(&backend.events, deadline)? {
                 Some(EngineEvent::Status(status)) => {
                     return Ok(status
                         .active_wallpapers
@@ -409,6 +450,13 @@ impl DesktopService {
     }
 
     pub fn apply_to_monitor(monitor_id: &str, item_id: &str) -> Result<DesktopApplyResult, String> {
+        with_desktop_action(|| Self::apply_to_monitor_unlocked(monitor_id, item_id))
+    }
+
+    fn apply_to_monitor_unlocked(
+        monitor_id: &str,
+        item_id: &str,
+    ) -> Result<DesktopApplyResult, String> {
         if let Some(result) = Self::unsupported_apply_result(item_id)? {
             return Ok(result);
         }
@@ -506,14 +554,64 @@ impl DesktopService {
             .ok_or_else(|| "Desktop apply backend failed to initialize".to_string())?;
 
         Self::wait_for_output(backend, &monitor.backend_output_id)?;
+        let request_id = next_apply_request_id()?;
+        let deadline = Instant::now() + REAL_APPLY_BACKEND_TIMEOUT;
         backend
             .handle
             .send(EngineCommand::ApplyWallpaper {
+                request_id,
+                deadline,
                 path: path.clone(),
                 output: Some(monitor.backend_output_id.clone()),
             })
             .map_err(|error| format!("Failed to send real desktop apply command: {error}"))?;
-        Self::wait_for_apply(backend, &monitor.backend_output_id, &path)
+        Self::wait_for_apply_or_cancel(
+            &backend.events,
+            request_id,
+            &monitor.backend_output_id,
+            &path,
+            deadline,
+            || {
+                backend
+                    .handle
+                    .send(EngineCommand::CancelApply {
+                        request_id,
+                        output: monitor.backend_output_id.clone(),
+                    })
+                    .map_err(|error| format!("Failed to send apply cancellation: {error}"))
+            },
+        )
+    }
+
+    fn wait_for_apply_or_cancel(
+        events: &Receiver<EngineEvent>,
+        request_id: u64,
+        output_name: &str,
+        path: &Path,
+        deadline: Instant,
+        cancel: impl FnOnce() -> Result<(), String>,
+    ) -> Result<(), String> {
+        match Self::wait_for_apply(events, request_id, output_name, path, deadline) {
+            Ok(()) => Ok(()),
+            Err(reason) => {
+                // Cancel even a queued success ACK: it was not accepted or saved.
+                // The engine only releases resources still owned by this request.
+                let cancelled = cancel().and_then(|_| {
+                    Self::wait_for_apply_cancellation(
+                        events,
+                        request_id,
+                        output_name,
+                        Instant::now() + APPLY_CANCELLATION_TIMEOUT,
+                    )
+                });
+                match cancelled {
+                    Ok(()) => Err(reason),
+                    Err(cancellation) => {
+                        Err(format!("{reason} Cancellation failed: {cancellation}"))
+                    }
+                }
+            }
+        }
     }
 
     fn ensure_real_backend_supported() -> Result<(), String> {
@@ -590,7 +688,7 @@ impl DesktopService {
         let deadline = Instant::now() + REAL_APPLY_BACKEND_TIMEOUT;
 
         loop {
-            match Self::recv_backend_event(backend, deadline)? {
+            match Self::recv_backend_event(&backend.events, deadline)? {
                 Some(EngineEvent::Started) => return Ok(()),
                 Some(EngineEvent::Error(reason)) => {
                     return Err(format!("{REAL_APPLY_BACKEND} failed to start: {reason}"));
@@ -618,7 +716,7 @@ impl DesktopService {
             })?;
 
         loop {
-            match Self::recv_backend_event(backend, deadline)? {
+            match Self::recv_backend_event(&backend.events, deadline)? {
                 Some(EngineEvent::OutputAdded(info)) => {
                     if Self::output_added_matches(&info, output_name) {
                         return Ok(());
@@ -673,18 +771,34 @@ impl DesktopService {
     }
 
     fn wait_for_apply(
-        backend: &mut RunningDesktopApplyBackend,
+        events: &Receiver<EngineEvent>,
+        request_id: u64,
         output_name: &str,
         path: &Path,
+        deadline: Instant,
     ) -> Result<(), String> {
-        let deadline = Instant::now() + REAL_APPLY_BACKEND_TIMEOUT;
-
         loop {
-            match Self::recv_backend_event(backend, deadline)? {
+            match Self::recv_backend_event(events, deadline)? {
                 Some(EngineEvent::WallpaperApplied {
+                    request_id: applied_request,
                     output,
                     path: applied_path,
-                }) if output == output_name && applied_path == path => return Ok(()),
+                }) if applied_request == request_id
+                    && output == output_name
+                    && applied_path == path =>
+                {
+                    return Ok(());
+                }
+                Some(EngineEvent::ApplyFailed {
+                    request_id: failed_request,
+                    output,
+                    reason,
+                }) if failed_request == request_id && output == output_name => {
+                    return Err(format!(
+                        "{REAL_APPLY_BACKEND} failed to apply {} to {output_name}: {reason}",
+                        path.display()
+                    ));
+                }
                 Some(EngineEvent::Error(reason)) => {
                     return Err(format!(
                         "{REAL_APPLY_BACKEND} failed to apply {} to {output_name}: {reason}",
@@ -699,6 +813,30 @@ impl DesktopService {
         }
     }
 
+    fn wait_for_apply_cancellation(
+        events: &Receiver<EngineEvent>,
+        request_id: u64,
+        output_name: &str,
+        deadline: Instant,
+    ) -> Result<(), String> {
+        loop {
+            match Self::recv_backend_event(events, deadline)? {
+                Some(EngineEvent::ApplyCancelled {
+                    request_id: cancelled_request,
+                    output,
+                    result,
+                }) if cancelled_request == request_id && output == output_name => return result,
+                Some(EngineEvent::Error(reason)) => return Err(reason),
+                Some(_) => {}
+                None => {
+                    return Err(format!(
+                        "Timed out cancelling request {request_id} on {output_name}"
+                    ));
+                }
+            }
+        }
+    }
+
     fn apply_timeout_message(output_name: &str, path: &Path) -> String {
         format!(
             "Timed out waiting for {REAL_APPLY_BACKEND} to apply {} to {output_name}. Check Wayland layer-shell, EGL, mpv, and video asset availability.",
@@ -707,7 +845,7 @@ impl DesktopService {
     }
 
     fn recv_backend_event(
-        backend: &mut RunningDesktopApplyBackend,
+        events: &Receiver<EngineEvent>,
         deadline: Instant,
     ) -> Result<Option<EngineEvent>, String> {
         let now = Instant::now();
@@ -715,11 +853,9 @@ impl DesktopService {
             return Ok(None);
         }
 
-        match backend
-            .events
-            .recv_timeout(deadline.saturating_duration_since(now))
-        {
-            Ok(event) => Ok(Some(event)),
+        match events.recv_timeout(deadline.saturating_duration_since(now)) {
+            Ok(event) if Instant::now() < deadline => Ok(Some(event)),
+            Ok(_) => Ok(None),
             Err(RecvTimeoutError::Timeout) => Ok(None),
             Err(RecvTimeoutError::Disconnected) => Err(format!(
                 "{REAL_APPLY_BACKEND} stopped before completing the desktop apply request"
@@ -728,6 +864,10 @@ impl DesktopService {
     }
 
     pub fn clear_monitor(monitor_id: &str) -> Result<DesktopApplyResult, String> {
+        with_desktop_action(|| Self::clear_monitor_unlocked(monitor_id))
+    }
+
+    fn clear_monitor_unlocked(monitor_id: &str) -> Result<DesktopApplyResult, String> {
         let monitors = MonitorService::list_monitors_uncached();
 
         match MonitorService::resolve_specific_monitor(&monitors, monitor_id) {
@@ -812,9 +952,14 @@ impl DesktopService {
         let deadline = Instant::now() + REAL_APPLY_BACKEND_TIMEOUT;
 
         loop {
-            match Self::recv_backend_event(backend, deadline)? {
+            match Self::recv_backend_event(&backend.events, deadline)? {
                 Some(EngineEvent::WallpaperCleared { output }) if output == output_name => {
                     return Ok(());
+                }
+                Some(EngineEvent::OutputError { output, reason }) if output == output_name => {
+                    return Err(format!(
+                        "{REAL_APPLY_BACKEND} failed to clear output {output_name}: {reason}"
+                    ));
                 }
                 Some(EngineEvent::Error(reason)) => {
                     return Err(format!(
@@ -850,6 +995,291 @@ mod tests {
     use lwe_engine::OutputInfo;
     use lwe_library::WeProject;
     use lwe_library::{WorkshopCatalogEntry, WorkshopProjectType, WorkshopSyncState};
+
+    fn applied(request_id: u64, output: &str) -> EngineEvent {
+        EngineEvent::WallpaperApplied {
+            request_id,
+            output: output.to_string(),
+            path: PathBuf::from("/tmp/video.mp4"),
+        }
+    }
+
+    #[test]
+    fn desktop_apply_flow_same_path_retry_ignores_late_ack() {
+        let (tx, events) = std::sync::mpsc::channel();
+        tx.send(applied(10, "eDP-1")).unwrap();
+        tx.send(applied(11, "eDP-1")).unwrap();
+
+        DesktopService::wait_for_apply(
+            &events,
+            11,
+            "eDP-1",
+            Path::new("/tmp/video.mp4"),
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap();
+        assert!(matches!(
+            events.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+    }
+
+    #[test]
+    fn desktop_apply_flow_failure_is_scoped_to_request_and_output() {
+        let (tx, events) = std::sync::mpsc::channel();
+        for (request_id, output) in [(10, "eDP-1"), (11, "HDMI-A-1")] {
+            tx.send(EngineEvent::ApplyFailed {
+                request_id,
+                output: output.to_string(),
+                reason: "unrelated application".to_string(),
+            })
+            .unwrap();
+        }
+        tx.send(EngineEvent::OutputError {
+            output: "HDMI-A-1".to_string(),
+            reason: "unrelated clear".to_string(),
+        })
+        .unwrap();
+        tx.send(EngineEvent::ApplyFailed {
+            request_id: 11,
+            output: "eDP-1".to_string(),
+            reason: "this application failed".to_string(),
+        })
+        .unwrap();
+
+        let reason = DesktopService::wait_for_apply(
+            &events,
+            11,
+            "eDP-1",
+            Path::new("/tmp/video.mp4"),
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap_err();
+        assert!(reason.contains("this application failed"));
+        assert!(!reason.contains("unrelated"));
+    }
+
+    #[test]
+    fn desktop_apply_flow_expired_ack_is_not_accepted() {
+        let (tx, events) = std::sync::mpsc::channel();
+        tx.send(applied(11, "eDP-1")).unwrap();
+
+        let reason = DesktopService::wait_for_apply(
+            &events,
+            11,
+            "eDP-1",
+            Path::new("/tmp/video.mp4"),
+            Instant::now(),
+        )
+        .unwrap_err();
+        assert!(reason.contains("Timed out"));
+        assert!(matches!(
+            events.try_recv(),
+            Ok(EngineEvent::WallpaperApplied { request_id: 11, .. })
+        ));
+    }
+
+    #[test]
+    fn desktop_apply_flow_timeout_cancels_before_same_path_retry() {
+        let (tx, events) = std::sync::mpsc::channel();
+        let mut cancelled = false;
+        let reason = DesktopService::wait_for_apply_or_cancel(
+            &events,
+            11,
+            "eDP-1",
+            Path::new("/tmp/video.mp4"),
+            Instant::now(),
+            || {
+                cancelled = true;
+                // The timed-out first frame can have completed while cancellation
+                // was in flight; only the cancellation confirmation releases the action.
+                tx.send(applied(11, "eDP-1")).unwrap();
+                tx.send(EngineEvent::ApplyCancelled {
+                    request_id: 11,
+                    output: "eDP-1".to_string(),
+                    result: Ok(()),
+                })
+                .unwrap();
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert!(cancelled);
+        assert!(reason.contains("Timed out"));
+        tx.send(applied(12, "eDP-1")).unwrap();
+        DesktopService::wait_for_apply(
+            &events,
+            12,
+            "eDP-1",
+            Path::new("/tmp/video.mp4"),
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap();
+        assert!(matches!(
+            events.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+    }
+
+    #[test]
+    fn desktop_apply_flow_accepted_ack_does_not_cancel() {
+        let (tx, events) = std::sync::mpsc::channel();
+        tx.send(applied(11, "eDP-1")).unwrap();
+        DesktopService::wait_for_apply_or_cancel(
+            &events,
+            11,
+            "eDP-1",
+            Path::new("/tmp/video.mp4"),
+            Instant::now() + Duration::from_secs(1),
+            || panic!("an accepted application must not be cancelled"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn desktop_apply_flow_cancellation_waits_past_late_ack_for_own_confirmation() {
+        let (tx, events) = std::sync::mpsc::channel();
+        tx.send(applied(11, "eDP-1")).unwrap();
+        for (request_id, output) in [(10, "eDP-1"), (11, "HDMI-A-1"), (11, "eDP-1")] {
+            tx.send(EngineEvent::ApplyCancelled {
+                request_id,
+                output: output.to_string(),
+                result: Ok(()),
+            })
+            .unwrap();
+        }
+        DesktopService::wait_for_apply_cancellation(
+            &events,
+            11,
+            "eDP-1",
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap();
+        assert!(matches!(
+            events.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+    }
+
+    #[test]
+    fn desktop_apply_flow_cancellation_reports_resource_release_failure() {
+        let (tx, events) = std::sync::mpsc::channel();
+        tx.send(EngineEvent::ApplyCancelled {
+            request_id: 11,
+            output: "eDP-1".to_string(),
+            result: Err("EGL resource release failed".to_string()),
+        })
+        .unwrap();
+        let reason = DesktopService::wait_for_apply_cancellation(
+            &events,
+            11,
+            "eDP-1",
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap_err();
+        assert_eq!(reason, "EGL resource release failed");
+    }
+
+    #[test]
+    fn desktop_apply_flow_action_lock_covers_runtime_and_persistence() {
+        use std::sync::Arc;
+        use std::sync::mpsc::channel;
+
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let (entered_tx, entered_rx) = channel();
+        let (resume_tx, resume_rx) = channel();
+        let apply_log = log.clone();
+        let apply = std::thread::spawn(move || {
+            with_desktop_action(|| {
+                apply_log.lock().unwrap().push("apply runtime");
+                entered_tx.send(()).unwrap();
+                resume_rx.recv().unwrap();
+                apply_log.lock().unwrap().push("apply persistence");
+                Ok(())
+            })
+            .unwrap();
+        });
+        entered_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+        let (clear_started_tx, clear_started_rx) = channel();
+        let clear_log = log.clone();
+        let clear = std::thread::spawn(move || {
+            clear_started_tx.send(()).unwrap();
+            with_desktop_action(|| {
+                clear_log.lock().unwrap().push("clear runtime");
+                clear_log.lock().unwrap().push("clear persistence");
+                Ok(())
+            })
+            .unwrap();
+        });
+        clear_started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        resume_tx.send(()).unwrap();
+        apply.join().unwrap();
+        clear.join().unwrap();
+
+        assert_eq!(
+            *log.lock().unwrap(),
+            [
+                "apply runtime",
+                "apply persistence",
+                "clear runtime",
+                "clear persistence",
+            ]
+        );
+    }
+
+    #[test]
+    fn desktop_apply_flow_snapshot_waits_for_in_flight_assignment_save() {
+        let _guard = real_desktop_flow_test_guard();
+        let config_root = test_config_root();
+        let _env = EnvGuard::set_config_root(&config_root);
+        let persistence = DesktopPersistenceService::for_user_path().unwrap();
+
+        for supplied_projection in [false, true] {
+            assert!(matches!(
+                persistence.save_assignment("DISPLAY-1", "old-item"),
+                DesktopPersistenceWrite::Saved
+            ));
+            let action_guard = DESKTOP_ACTIONS.lock().unwrap();
+            // Simulate the apply window after runtime accepted new-item but before
+            // persistence caught up. Both public snapshot entrances must wait.
+            let (started_tx, started_rx) = std::sync::mpsc::channel();
+            let (snapshot_tx, snapshot_rx) = std::sync::mpsc::channel();
+            let snapshot = std::thread::spawn(move || {
+                started_tx.send(()).unwrap();
+                let result = if supplied_projection {
+                    DesktopService::load_page_with_projection(Ok(LibraryProjection {
+                        entries: vec![library_item("new-item", "New wallpaper")],
+                        source_catalog_count: 1,
+                        served_from_snapshot: false,
+                    }))
+                } else {
+                    DesktopService::load_page()
+                };
+                snapshot_tx.send(result).unwrap();
+            });
+            started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            let premature = snapshot_rx.recv_timeout(Duration::from_millis(30));
+            assert!(matches!(premature, Err(RecvTimeoutError::Timeout)));
+            assert!(matches!(
+                persistence.save_assignment("DISPLAY-1", "new-item"),
+                DesktopPersistenceWrite::Saved
+            ));
+            drop(action_guard);
+
+            let page = snapshot_rx
+                .recv_timeout(Duration::from_secs(30))
+                .unwrap()
+                .unwrap();
+            snapshot.join().unwrap();
+            assert_eq!(
+                page.assignments.get("DISPLAY-1").map(String::as_str),
+                Some("new-item")
+            );
+        }
+        fs::remove_dir_all(config_root).unwrap();
+    }
 
     struct EnvGuard {
         xdg_config_home: Option<OsString>,
