@@ -1,4 +1,5 @@
 pub mod app_shell_service;
+pub(crate) mod atomic_file;
 pub mod autostart_service;
 pub mod backends;
 pub mod compatibility_service;

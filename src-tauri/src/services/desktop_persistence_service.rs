@@ -2,9 +2,13 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use crate::results::desktop_persistence::{DesktopPersistenceLoad, DesktopPersistenceWrite};
 use crate::results::session_persistence::PersistedSessionState;
+use crate::services::atomic_file::atomic_write;
+
+static SESSION_WRITES: Mutex<()> = Mutex::new(());
 
 pub struct DesktopPersistenceService;
 
@@ -98,11 +102,11 @@ impl DesktopPersistenceService {
             }
         };
 
-        match fs::write(path, contents) {
+        match atomic_write(path, contents.as_bytes()) {
             Ok(()) => DesktopPersistenceWrite::Saved,
             Err(error) => DesktopPersistenceWrite::Unavailable {
                 reason: format!(
-                    "Failed to write desktop assignments to {}: {error}",
+                    "Failed to atomically save desktop assignments to {}: {error}",
                     path.display()
                 ),
             },
@@ -195,10 +199,20 @@ impl ScopedDesktopPersistenceService {
     }
 
     pub fn save_assignment(&self, monitor_id: &str, item_id: &str) -> DesktopPersistenceWrite {
+        let Ok(_write_guard) = SESSION_WRITES.lock() else {
+            return DesktopPersistenceWrite::Unavailable {
+                reason: "Desktop assignment persistence lock was poisoned".to_string(),
+            };
+        };
         DesktopPersistenceService::save_assignment_at_path(&self.path, monitor_id, item_id)
     }
 
     pub fn clear_assignment(&self, monitor_id: &str) -> DesktopPersistenceWrite {
+        let Ok(_write_guard) = SESSION_WRITES.lock() else {
+            return DesktopPersistenceWrite::Unavailable {
+                reason: "Desktop assignment persistence lock was poisoned".to_string(),
+            };
+        };
         DesktopPersistenceService::clear_at_path(&self.path, monitor_id)
     }
 }
@@ -304,6 +318,42 @@ mod tests {
             DesktopPersistenceLoad::Loaded(assignments)
                 if assignments.get("eDP-1") == Some(&"item-1".to_string())
         ));
+    }
+
+    #[test]
+    fn concurrent_monitor_saves_preserve_all_assignments() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("session.toml");
+        let barrier = std::sync::Barrier::new(12);
+        std::thread::scope(|scope| {
+            for index in 0..12 {
+                let path = &path;
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    assert!(matches!(
+                        DesktopPersistenceService::for_path(path.clone()).save_assignment(
+                            &format!("DISPLAY-{index}"),
+                            &format!("video-{index}"),
+                        ),
+                        DesktopPersistenceWrite::Saved
+                    ));
+                });
+            }
+        });
+        let DesktopPersistenceLoad::Loaded(assignments) =
+            DesktopPersistenceService::for_path(path.clone()).load_state()
+        else {
+            panic!("all assignments should remain readable");
+        };
+        assert_eq!(assignments.len(), 12);
+        for index in 0..12 {
+            assert_eq!(
+                assignments[&format!("DISPLAY-{index}")],
+                format!("video-{index}")
+            );
+        }
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 
     #[test]

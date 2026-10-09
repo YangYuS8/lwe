@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Mutex;
 
 use lwe_library::{SteamLibrary, WALLPAPER_ENGINE_APP_ID};
 
@@ -26,6 +27,8 @@ pub(crate) struct SettingsPageData {
 
 pub struct SettingsService;
 
+static SETTINGS_UPDATES: Mutex<()> = Mutex::new(());
+
 impl SettingsService {
     pub(crate) fn load_page() -> Result<SettingsPageData, String> {
         let persistence = SettingsPersistenceService::for_user_path()?;
@@ -46,6 +49,9 @@ impl SettingsService {
     }
 
     pub(crate) fn update_settings(input: SettingsUpdateInput) -> Result<SettingsPageData, String> {
+        let _update_guard = SETTINGS_UPDATES
+            .lock()
+            .map_err(|_| "Settings update lock was poisoned".to_string())?;
         let persistence = SettingsPersistenceService::for_user_path()?;
         let previous_settings = match persistence.load_settings() {
             SettingsPersistenceLoad::Loaded(settings) => settings,
@@ -155,6 +161,9 @@ impl SettingsService {
         config_root: std::path::PathBuf,
         input: SettingsUpdateInput,
     ) -> Result<SettingsPageData, String> {
+        let _update_guard = SETTINGS_UPDATES
+            .lock()
+            .map_err(|_| "Settings update lock was poisoned".to_string())?;
         let persistence = SettingsPersistenceService::for_test(settings_path.clone());
         let previous_settings = match persistence.load_settings() {
             SettingsPersistenceLoad::Loaded(settings) => settings,
@@ -311,6 +320,41 @@ mod tests {
             .as_nanos();
 
         std::env::temp_dir().join(format!("{prefix}-{unique}"))
+    }
+
+    #[test]
+    fn concurrent_partial_settings_updates_preserve_both_fields() {
+        let directory = tempfile::tempdir().unwrap();
+        let settings_path = directory.path().join("settings.toml");
+        let config_root = directory.path().join("config");
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            for (language, theme) in [(Some("zh-CN"), None), (None, Some("dark"))] {
+                let settings_path = &settings_path;
+                let config_root = &config_root;
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    SettingsService::update_settings_for_test(
+                        settings_path.clone(),
+                        config_root.clone(),
+                        SettingsUpdateInput {
+                            language: language.map(str::to_string),
+                            theme: theme.map(str::to_string),
+                            launch_on_login: None,
+                            steam_web_api_key: None,
+                            workshop_query: None,
+                            workshop_age_ratings: None,
+                            workshop_item_types: None,
+                        },
+                    )
+                    .unwrap();
+                });
+            }
+        });
+        let current = SettingsService::load_page_for_test(settings_path, config_root).unwrap();
+        assert_eq!(current.language, "zh-CN");
+        assert_eq!(current.theme, "dark");
     }
 
     #[test]

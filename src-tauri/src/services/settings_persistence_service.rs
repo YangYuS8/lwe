@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::results::settings_persistence::{
     PersistedSettings, SettingsPersistenceLoad, SettingsPersistenceWrite,
 };
+use crate::services::atomic_file::atomic_write;
 
 pub struct SettingsPersistenceService;
 
@@ -32,9 +33,9 @@ impl ScopedSettingsPersistenceService {
         match fs::read_to_string(&self.path) {
             Ok(contents) => match toml::from_str::<PersistedSettings>(&contents) {
                 Ok(settings) => SettingsPersistenceLoad::Loaded(settings),
-                Err(reason) => SettingsPersistenceLoad::Unavailable {
+                Err(_) => SettingsPersistenceLoad::Unavailable {
                     reason: format!(
-                        "Failed to parse settings from {}: {reason}",
+                        "Failed to parse settings from {}: invalid TOML (setting values omitted)",
                         self.path.display()
                     ),
                 },
@@ -75,40 +76,16 @@ impl ScopedSettingsPersistenceService {
             }
         };
 
-        let temp_path = atomic_write_path_for(&self.path);
-
-        if let Err(error) = fs::write(&temp_path, contents) {
-            return SettingsPersistenceWrite::Unavailable {
-                reason: format!(
-                    "Failed to write temporary settings file {}: {error}",
-                    temp_path.display()
-                ),
-            };
-        }
-
-        match fs::rename(&temp_path, &self.path) {
+        match atomic_write(&self.path, contents.as_bytes()) {
             Ok(()) => SettingsPersistenceWrite::Saved,
-            Err(error) => {
-                let _ = fs::remove_file(&temp_path);
-
-                SettingsPersistenceWrite::Unavailable {
-                    reason: format!(
-                        "Failed to atomically replace settings at {}: {error}",
-                        self.path.display()
-                    ),
-                }
-            }
+            Err(error) => SettingsPersistenceWrite::Unavailable {
+                reason: format!(
+                    "Failed to atomically replace settings at {}: {error}",
+                    self.path.display()
+                ),
+            },
         }
     }
-}
-
-fn atomic_write_path_for(path: &Path) -> PathBuf {
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("settings.toml");
-
-    path.with_file_name(format!(".{file_name}.tmp"))
 }
 
 #[allow(dead_code)]
@@ -158,7 +135,7 @@ mod tests {
     use crate::models::{WorkshopAgeRating, WorkshopOnlineItemType};
     use crate::results::settings_persistence::{PersistedSettings, SettingsPersistenceLoad};
 
-    use super::{SettingsPersistenceService, atomic_write_path_for, settings_path_from_env};
+    use super::{SettingsPersistenceService, settings_path_from_env};
 
     fn test_settings_path() -> PathBuf {
         let unique = SystemTime::now()
@@ -318,15 +295,29 @@ mod tests {
 
     #[test]
     fn settings_persistence_atomic_save_cleans_up_temp_file() {
-        let path = test_settings_path();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.toml");
         let service = SettingsPersistenceService::for_test(path.clone());
-        let temp_path = atomic_write_path_for(&path);
 
         assert!(matches!(
             service.save_settings(&PersistedSettings::default()),
             crate::results::settings_persistence::SettingsPersistenceWrite::Saved
         ));
 
-        assert!(!temp_path.exists());
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn invalid_settings_do_not_expose_api_key_in_parse_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.toml");
+        std::fs::write(&path, "steam_web_api_key = 'fixture-private-key' invalid\n").unwrap();
+        let SettingsPersistenceLoad::Unavailable { reason } =
+            SettingsPersistenceService::for_test(path).load_settings()
+        else {
+            panic!("invalid settings should be unavailable");
+        };
+        assert!(reason.contains("Failed to parse settings"));
+        assert!(!reason.contains("fixture-private-key"));
     }
 }
