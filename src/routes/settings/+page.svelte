@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { actionOutcomeError } from '$lib/action-outcome';
   import PageHeader from '$lib/layout/PageHeader.svelte';
-  import { copy, setPreferredLanguage } from '$lib/i18n';
+  import { copy, formatCopy, setPreferredLanguage } from '$lib/i18n';
   import { Button } from '$lib/ui/button';
   import { Card } from '$lib/ui/card';
   import * as Select from '$lib/ui/select';
   import { loadDiagnostics, loadSettingsPage, updateSettings } from '$lib/ipc';
   import {
+    applyInvalidations,
     applyThemePreference,
     needsPageLoad,
     pageCache,
@@ -77,6 +79,7 @@
   let diagnosticsText: string | null = null;
   let diagnosticsCopied = false;
   let actionMessage: string | null = null;
+  let refreshError: string | null = null;
   let draftSource: SettingsPageSnapshot | null = null;
   let isEditing = initialEditing;
   let draft: SettingsDraft = {
@@ -100,7 +103,7 @@
       draft.steamWebApiKey !== snapshot.steamWebApiKey);
 
   const ensurePage = async () => {
-    if (!needsPageLoad('settings')) {
+    if (loading || !needsPageLoad('settings')) {
       return;
     }
 
@@ -117,14 +120,28 @@
     }
   };
 
+  const refreshSavedSettings = async () => {
+    if (loading) return;
+    loading = true;
+    refreshError = null;
+    try {
+      applySnapshot(await loadSettingsPage());
+    } catch (error) {
+      refreshError = formatCopy($copy.actionFeedback.refreshFailed, { error: readError(error) });
+    } finally {
+      loading = false;
+    }
+  };
+
   const saveSettings = async () => {
-    if (!snapshot || !hasChanges) {
+    if (saving || loading || !snapshot || !hasChanges) {
       return;
     }
 
     saving = true;
     pageError = null;
     actionMessage = null;
+    refreshError = null;
 
     try {
       const outcome = await updateSettings({
@@ -136,12 +153,16 @@
           draft.steamWebApiKey !== snapshot.steamWebApiKey ? draft.steamWebApiKey : null
       });
 
+      applyInvalidations(outcome.invalidations);
+      pageError = actionOutcomeError(outcome, $copy.actionFeedback.failed);
+      if (pageError) return;
       if (outcome.currentUpdate) {
         applySnapshot(outcome.currentUpdate);
       }
 
-      actionMessage = outcome.message;
+      actionMessage = outcome.message ?? $copy.actionFeedback.completed;
       isEditing = false;
+      if (!outcome.currentUpdate) await refreshSavedSettings();
     } catch (error) {
       pageError = readError(error);
     } finally {
@@ -150,6 +171,7 @@
   };
 
   const startEditing = () => {
+    if (saving || loading) return;
     actionMessage = null;
     isEditing = true;
   };
@@ -211,7 +233,19 @@
   />
 
   {#if pageError}
-    <p class="lwe-warning-banner" role="alert" aria-live="assertive">{pageError}</p>
+    <div class="grid justify-items-start gap-2">
+      <p class="lwe-warning-banner" role="alert" aria-live="assertive">{pageError}</p>
+      {#if !isEditing}
+        <Button variant="outline" onclick={ensurePage} disabled={loading}>{$copy.actionFeedback.retry}</Button>
+      {/if}
+    </div>
+  {/if}
+
+  {#if refreshError}
+    <div class="grid justify-items-start gap-2">
+      <p class="lwe-warning-banner" role="alert" aria-live="assertive">{refreshError}</p>
+      <Button variant="outline" onclick={refreshSavedSettings} disabled={loading || saving}>{$copy.actionFeedback.retryRefresh}</Button>
+    </div>
   {/if}
 
   {#if loading && !hasSnapshot}
@@ -241,7 +275,7 @@
           <div class="grid gap-4">
             <label class="grid gap-1.5">
               <span class="lwe-eyebrow">{$copy.settings.language}</span>
-              <Select.Root type="single" name="settingsLanguage" bind:value={draft.language}>
+              <Select.Root type="single" name="settingsLanguage" bind:value={draft.language} disabled={saving}>
                 <Select.Trigger aria-label={$copy.settings.language} class="min-w-[14rem]">
                   {languageLabel(draft.language)}
                 </Select.Trigger>
@@ -256,7 +290,7 @@
 
             <label class="grid gap-1.5">
               <span class="lwe-eyebrow">{$copy.settings.theme}</span>
-              <Select.Root type="single" name="settingsTheme" bind:value={draft.theme}>
+              <Select.Root type="single" name="settingsTheme" bind:value={draft.theme} disabled={saving}>
                 <Select.Trigger aria-label={$copy.settings.theme} class="min-w-[14rem]">
                   {themeLabel(draft.theme)}
                 </Select.Trigger>
@@ -301,6 +335,7 @@
               <span class="lwe-eyebrow">{$copy.settings.steamWebApiKey}</span>
               <input
                 type="password"
+                disabled={saving}
                 bind:value={draft.steamWebApiKey}
                 autocomplete="off"
                 spellcheck={false}
@@ -339,7 +374,7 @@
           </div>
 
           <div class="flex flex-wrap items-center gap-3">
-            <Button onclick={startEditing}>{$copy.settings.editSettings}</Button>
+            <Button onclick={startEditing} disabled={saving || loading}>{$copy.settings.editSettings}</Button>
           </div>
         {/if}
       </Card>

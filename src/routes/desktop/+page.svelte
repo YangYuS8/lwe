@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import DesktopMonitorCard from '$lib/components/DesktopMonitorCard.svelte';
-  import { copy } from '$lib/i18n';
+  import { copy, formatCopy } from '$lib/i18n';
+  import { actionOutcomeError } from '$lib/action-outcome';
+  import { Button } from '$lib/ui/button';
   import PageHeader from '$lib/layout/PageHeader.svelte';
   import { Card } from '$lib/ui/card';
   import * as Select from '$lib/ui/select';
@@ -20,6 +22,7 @@
   let pageError: string | null = null;
   let actionError: string | null = null;
   let actionMessage: string | null = null;
+  let refreshError: string | null = null;
   let clearingMonitorIds = new Set<string>();
   let monitorFilter: MonitorFilter = 'all';
 
@@ -34,8 +37,8 @@
         ? $copy.desktop.filterEmptyMissing
         : null;
 
-  const ensurePage = async () => {
-    if (!needsPageLoad('desktop')) {
+  const ensurePage = async (force = false) => {
+    if (loading || (!force && !needsPageLoad('desktop'))) {
       return;
     }
 
@@ -51,16 +54,33 @@
     }
   };
 
+  const refreshAfterClear = async () => {
+    loading = true;
+    pageError = null;
+    refreshError = null;
+    try {
+      setDesktopSnapshot(await loadDesktopPage());
+    } catch (error) {
+      refreshError = formatCopy($copy.actionFeedback.refreshFailed, { error: readError(error) });
+    } finally {
+      loading = false;
+    }
+  };
+
   const clearMonitor = async (monitorId: string) => {
+    if (isDesktopClearInFlight(clearingMonitorIds, monitorId)) return;
     clearingMonitorIds = startDesktopClear(clearingMonitorIds, monitorId);
     actionError = null;
     actionMessage = null;
+    refreshError = null;
 
     try {
       const outcome = await clearLibraryItemFromMonitor(monitorId);
-      actionMessage = outcome.message;
       applyDesktopClearInvalidations(outcome.invalidations);
-      setDesktopSnapshot(await loadDesktopPage());
+      actionError = actionOutcomeError(outcome, $copy.actionFeedback.failed);
+      if (actionError) return;
+      actionMessage = outcome.message ?? $copy.actionFeedback.completed;
+      await refreshAfterClear();
     } catch (error) {
       actionError = readError(error);
     } finally {
@@ -107,10 +127,21 @@
   </PageHeader>
 
   {#if pageError}
-    <p class="lwe-warning-banner" role="alert" aria-live="assertive">{pageError}</p>
-  {:else if actionError}
+    <div class="grid justify-items-start gap-2">
+      <p class="lwe-warning-banner" role="alert" aria-live="assertive">{pageError}</p>
+      <Button variant="outline" onclick={() => ensurePage(true)} disabled={loading}>{$copy.actionFeedback.retry}</Button>
+    </div>
+  {/if}
+  {#if actionError}
     <p class="lwe-warning-banner" role="alert" aria-live="assertive">{actionError}</p>
-  {:else if loading && !$pageCache.desktop.snapshot}
+  {/if}
+  {#if refreshError}
+    <div class="grid justify-items-start gap-2">
+      <p class="lwe-warning-banner" role="alert" aria-live="assertive">{refreshError}</p>
+      <Button variant="outline" onclick={refreshAfterClear} disabled={loading}>{$copy.actionFeedback.retryRefresh}</Button>
+    </div>
+  {/if}
+  {#if loading && !$pageCache.desktop.snapshot}
     <p class="text-sm text-muted-foreground" role="status" aria-live="polite">{$copy.desktop.loading}</p>
   {:else if snapshot}
     <div class="grid gap-5">
