@@ -41,11 +41,13 @@ pnpm tauri:dev
 ## Preserve application contracts
 
 - Keep commands thin: frontend IPC -> Tauri command -> service/application result -> assembly/frontend model. Business decisions belong in services and shared policies, with runtime integration in the existing backend/engine paths.
+- Keep filesystem scans, thumbnail generation, blocking HTTP, and runtime acknowledgements off the Tauri main thread. Reuse `commands/background.rs`; desktop-dependent commands wait for background startup restore before reading or mutating assignments. Serialize read-modify-write operations in the synchronous services and preserve command result contracts.
 - For IPC changes, keep Rust serialization and `src/lib/ipc.ts`/`src/lib/types.ts` aligned; register new commands in `src-tauri/src/lib.rs`. Preserve `ActionOutcome` business success/failure, messages, current updates, shell patches, and page invalidations; a resolved IPC call alone does not mean the action succeeded.
 - Preserve snapshot/cache invalidation and unavailable/stale/error states across Workshop, Library, Desktop, and Settings. Reuse existing policies rather than duplicating compatibility or support rules in the UI.
 - Missing Steam or downloaded Workshop content is normal first-launch setup, and an unsupported desktop session is a playback requirement. Keep Library/Workshop browsing available in those cases; preserve real filesystem, command, and parsing failures. Include a fresh-user startup check for packaging changes.
 - Trace the active call path before changing retained crate code. The shell's Library is currently a projection of assessed Workshop entries; the SQLite code in `lwe-library` is not the shell's active Library persistence path.
 - Settings and assignments use `$XDG_CONFIG_HOME/lwe/settings.toml` and `lwe/session.toml` (default config root: `~/.config`). Preserve atomic writes and the distinction between missing state and failed reads. Use isolated fixtures for persistence tests; do not reset user state as routine test setup. Keep Steam API keys redacted in diagnostics and reports.
+- Reuse `services/atomic_file.rs` for private, same-directory atomic replacement. Write/replace failures must retain the previous file, and concurrent saves must not lose unrelated fields or monitor assignments. Remove URLs from credential-bearing HTTP errors and omit setting values from parse errors.
 
 ## Validate the change
 

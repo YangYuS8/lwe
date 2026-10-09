@@ -112,6 +112,10 @@ Quality Check also runs the lightweight packaging regressions:
 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 ```
 
+Frontend tests include both server rendering and real component interactions in a simulated DOM. `pnpm test` runs both projects. For a focused run, use `pnpm test --project server` or `pnpm test --project interaction`; interaction fixtures mock IPC while clicking the mounted components. Cover business failures (`ActionOutcome.ok=false`), rejected IPC, and successful actions whose subsequent refresh fails. Keep existing content available for retries and distinguish refreshing data from repeating a successful action.
+
+Tauri commands run synchronous service work through `commands/background.rs`. Desktop-dependent commands wait for background startup restore, and writes stay serialized in the service layer. Session and settings files use private temporary files and atomic replacement; persistence tests must prove that partial-write or replacement failures retain the previous file. Use fake API keys and local HTTP fixtures for network error redaction tests.
+
 For documentation-only changes, `pnpm docs:build` and `git diff --check` are the required validation.
 
 ## Packaging validation
