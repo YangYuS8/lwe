@@ -821,12 +821,12 @@ fn decode_block(block: &[u8], scratch: &mut Bc3Scratch) {
     scratch.alphas[0] = a as u8;
     scratch.alphas[1] = b as u8;
     if a > b {
-        for i in 2..8 {
-            scratch.alphas[i] = (((8 - i) as u16 * a + (i - 1) as u16 * b) / 7) as u8;
+        for (i, alpha) in scratch.alphas.iter_mut().enumerate().skip(2) {
+            *alpha = (((8 - i) as u16 * a + (i - 1) as u16 * b) / 7) as u8;
         }
     } else {
-        for i in 2..6 {
-            scratch.alphas[i] = (((6 - i) as u16 * a + (i - 1) as u16 * b) / 5) as u8;
+        for (i, alpha) in scratch.alphas[..6].iter_mut().enumerate().skip(2) {
+            *alpha = (((6 - i) as u16 * a + (i - 1) as u16 * b) / 5) as u8;
         }
         scratch.alphas[6] = 0;
         scratch.alphas[7] = 255;
