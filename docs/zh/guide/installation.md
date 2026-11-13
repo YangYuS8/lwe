@@ -61,7 +61,7 @@ chmod +x lwe_*.AppImage
 
 - Node.js 24，与 CI 一致
 - pnpm 11.1.3，由 `package.json` 固定
-- Rust 1.99.0，由 `rust-toolchain.toml` 选择
+- Rust 1.100.0，由 `rust-toolchain.toml` 选择
 - 当前发行版所需的 Tauri 2 构建依赖
 
 最低支持的 Rust 版本另行声明在 `Cargo.toml` 中。桌面构建使用 `.tauri-cli-version` 指定的精确 Cargo Tauri CLI，共享安装脚本会核验或安装该版本。
