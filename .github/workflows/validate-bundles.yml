@@ -1,0 +1,35 @@
+name: Validate bundles
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/build-bundles.yml'
+      - '.github/workflows/release-prerelease.yml'
+      - '.github/workflows/release-stable.yml'
+      - '.github/workflows/validate-bundles.yml'
+      - '.tauri-cli-version'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'packaging/appimage/Dockerfile'
+      - 'rust-toolchain.toml'
+      - 'src-tauri/tauri.conf.json'
+      - 'scripts/build-linux-bundles.sh'
+      - 'scripts/ensure-tauri-cli.sh'
+      - 'scripts/validate-appimage.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-bundles-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-bundles.yml
+    with:
+      source_ref: ${{ github.sha }}
+      artifact_prefix: candidate-bundles
