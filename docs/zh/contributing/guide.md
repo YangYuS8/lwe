@@ -6,7 +6,7 @@
 
 - Node.js 24，与 CI 一致；
 - pnpm 11.1.3，由 `package.json` 固定；
-- Rust 1.99.0，由 `rust-toolchain.toml` 选择；最低支持的 Rust 版本另行声明在 `Cargo.toml` 中；
+- Rust 1.100.0，由 `rust-toolchain.toml` 选择；最低支持的 Rust 版本另行声明在 `Cargo.toml` 中；
 - 当前发行版所需的 Tauri 2 平台依赖。
 
 Cargo Tauri CLI 版本由 `.tauri-cli-version` 固定（2.12.1）。使用共享安装脚本验证或安装该精确版本，不使用未限定的最新 CLI。

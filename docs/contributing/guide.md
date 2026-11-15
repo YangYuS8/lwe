@@ -6,7 +6,7 @@ Install the core toolchain:
 
 - Node.js 24, matching CI;
 - pnpm 11.1.3, pinned in `package.json`;
-- Rust 1.99.0, selected by `rust-toolchain.toml`; the minimum supported Rust version is declared separately in `Cargo.toml`;
+- Rust 1.100.0, selected by `rust-toolchain.toml`; the minimum supported Rust version is declared separately in `Cargo.toml`;
 - platform dependencies required by Tauri 2 on your distribution.
 
 The Cargo Tauri CLI version is pinned in `.tauri-cli-version` (2.12.1). Use the shared installer to verify or install that exact version rather than an unbounded latest CLI.
