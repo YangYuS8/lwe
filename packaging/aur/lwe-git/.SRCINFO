@@ -27,6 +27,7 @@ pkgbase = lwe-git
 	depends = webkit2gtk-4.1
 	provides = lwe
 	conflicts = lwe
+	options = !lto
 	source = git+https://github.com/YangYuS8/lwe.git
 	sha256sums = SKIP
 
