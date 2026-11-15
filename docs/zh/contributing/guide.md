@@ -122,7 +122,7 @@ Tauri 命令通过 `commands/background.rs` 在后台执行同步服务逻辑。
 
 两条发布 workflow 都读取 `.tauri-cli-version`，将其纳入 CLI 缓存键，并在恢复缓存后验证 `cargo-tauri`。缓存中的版本不匹配时，必须替换并重新核验，才能开始构建。
 
-AppImage 在 Ubuntu 22.04 上构建，以保持 glibc 要求与 AppImage 目录的测试主机兼容。原生 deb/rpm 包使用 Ubuntu 24.04，以保留 Arch 软件包使用的 libmpv.so.2 ABI。发布 CLI 和 Rust 缓存按发行版隔离；静态元数据校验通过不能证明 AppImage 可以在最低支持系统上启动。Quality CI 使用校验过 SHA-256 的 actionlint 检查所有 workflow。
+两条发布工作流共用同一套打包流程。AppImage 在 Ubuntu 24.04 runner 上的 Ubuntu 22.04 容器中编译和打包，以保持 glibc 要求与 AppImage 目录的测试主机兼容。原生 deb/rpm 包在 Ubuntu 24.04 上构建，以保留 Arch 软件包使用的 libmpv.so.2 ABI。CLI 和 Rust 缓存按构建发行版隔离。静态元数据校验通过不能证明 AppImage 可以在最低支持系统上启动。Quality CI 在 Ubuntu 24.04 上运行，并使用校验过 SHA-256 的 actionlint 检查所有工作流。改动打包工作流或其输入的 PR 会运行 Validate bundles，上传候选包以供安装和启动验证。
 
 AppImage 验证需要 Python 3、`unsquashfs`（来自 squashfs-tools）、`file` 和 `desktop-file-validate`（来自 desktop-file-utils）：
 
