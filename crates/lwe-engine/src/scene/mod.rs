@@ -2686,6 +2686,21 @@ mod tests {
     }
 
     #[test]
+    fn undeclared_visibility_keeps_authored_input_for_the_script() {
+        let fixture = Fixture::new();
+        let source = "let authored; export function init(value){authored=value;} export function update(){thisLayer.alpha=authored?1:0.5;return true;}";
+        fixture.scene(serde_json::json!([
+            {"image":"models/unused.json","visible":{"user":"removed","value":false}},
+            {"image":"models/image.json","visible":{"user":"removed","value":false,"script":source}}
+        ]));
+        let prepared = PreparedScene::prepare(&fixture.0, None).unwrap();
+        assert_eq!(prepared.summary().layer_count, 1);
+        let state = &prepared.scripts.as_ref().unwrap().initial_states()[1];
+        assert!(state.visible);
+        assert_eq!(state.alpha, 0.5);
+    }
+
+    #[test]
     fn authored_visibility_skips_hidden_objects_and_regates_enabled_ones() {
         let fixture = Fixture::new();
         fixture.write(

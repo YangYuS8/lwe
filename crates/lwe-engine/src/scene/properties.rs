@@ -353,10 +353,27 @@ impl<'a> ProjectProperties<'a> {
 
     pub(super) fn resolve_scene_document(&self, document: &mut Value) -> Result<()> {
         validate_document(document, 0, &self.remaining_nodes, Some(self))?;
-        // Only the direct content of a Scene text object can consume user text.
-        // Resolve this slot before the general resource/property traversal.
+        // Resolve direct layer slots before the general resource traversal.
         if let Some(objects) = document.get_mut("objects").and_then(Value::as_array_mut) {
             for object in objects {
+                if let Some(visible) = object.get_mut("visible")
+                    && let Some(wrapper) = visible.as_object()
+                    && wrapper.len() == 2
+                    && let (Some(user @ Value::String(_)), Some(Value::Bool(authored))) =
+                        (wrapper.get("user"), wrapper.get("value"))
+                {
+                    let (name, _) = user_binding(user)?;
+                    // The native bool loader sets the authored visibility, and
+                    // a missing property never reaches the user value setter.
+                    if name
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+                        && self.declarations.is_none_or(|map| !map.contains_key(name))
+                    {
+                        *visible = Value::Bool(*authored);
+                    }
+                }
+                // Only the direct content of a Scene text object can consume user text.
                 if ["image", "particle", "sound", "model"]
                     .iter()
                     .any(|key| object.get(key).is_some())
@@ -1490,7 +1507,34 @@ mod tests {
     }
 
     #[test]
-    fn missing_malformed_or_unknown_bindings_are_never_defaulted() {
+    fn undeclared_visibility_fallback_is_limited_to_plain_layer_bool_bindings() {
+        let project = json!({"general":{"properties":{"present":{"type":"bool","value":false}}}});
+        let properties = ProjectProperties::from_project(&project).unwrap();
+        let mut scene = json!({"objects":[
+            {"visible":{"user":"missing","value":true}},
+            {"visible":{"user":"present","value":true}}
+        ]});
+        properties.resolve_scene_document(&mut scene).unwrap();
+        assert_eq!(
+            scene,
+            json!({"objects":[{"visible":true},{"visible":false}]})
+        );
+        for object in [
+            json!({"visible":{"user":"missing","value":1}}),
+            json!({"visible":{"user":{"name":"missing","condition":"x"},"value":true}}),
+            json!({"visible":{"user":"","value":true}}),
+            json!({"visible":{"user":"$mediaThumbnail","value":true}}),
+            json!({"visible":{"user":"missing","value":true,"other":true}}),
+            json!({"alpha":{"user":"missing","value":0.5}}),
+            json!({"effects":[{"visible":{"user":"missing","value":true}}]}),
+        ] {
+            let mut scene = json!({"objects":[object]});
+            assert!(properties.resolve_scene_document(&mut scene).is_err());
+        }
+    }
+
+    #[test]
+    fn missing_malformed_or_unknown_resource_bindings_are_never_defaulted() {
         let project = json!({"general":{"properties":{
             "flag":{"type":"bool","value":true},
             "slider":{"type":"slider","value":0.5,"min":0,"max":1},

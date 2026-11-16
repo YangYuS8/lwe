@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::ffi::CString;
 use std::fs::File;
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::sync::Arc;
 
@@ -13,11 +13,12 @@ use lwe_scene::{SceneAssets, SceneResource};
 use serde_json::{Map, Value};
 
 use super::unsupported;
-use crate::mpv::MpvAudioPlayer;
+use crate::mpv::{MpvAudioPlayer, SceneAudioFormat};
 
 const MAX_SOUNDS: usize = 8;
 const MAX_CLIP_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_AUDIO_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_ID3V2_BYTES: u64 = 1024 * 1024;
 const READ_CHUNK: usize = 64 * 1024;
 
 #[derive(Clone)]
@@ -48,10 +49,11 @@ impl PreparedAudio {
 struct AudioClip {
     source: Arc<File>,
     bytes: u64,
+    format: SceneAudioFormat,
 }
 
 /// Call only from CPU preparation, after the project-property resolver. This
-/// subset admits ordinary, initially audible loop sounds containing one FLAC.
+/// subset admits ordinary, initially audible single-file FLAC or MP3 loops.
 /// Multi-track selection, random intervals, scripts, and spatial sound remain
 /// explicit capability failures.
 pub(crate) fn prepare_audio(assets: &SceneAssets, scene: &Value) -> Result<Vec<PreparedAudio>> {
@@ -60,7 +62,7 @@ pub(crate) fn prepare_audio(assets: &SceneAssets, scene: &Value) -> Result<Vec<P
         .and_then(Value::as_array)
         .ok_or_else(|| unsupported("audio", "Scene audio needs an object array"))?;
     let mut declarations = Vec::new();
-    let mut resources = BTreeMap::<String, SceneResource>::new();
+    let mut resources = BTreeMap::<String, (SceneResource, SceneAudioFormat)>::new();
     let mut total = 0_u64;
     for object in objects
         .iter()
@@ -70,7 +72,7 @@ pub(crate) fn prepare_audio(assets: &SceneAssets, scene: &Value) -> Result<Vec<P
             declarations.len() < MAX_SOUNDS,
             "Scene sound layer limit exceeded"
         );
-        let (name, volume) = declaration(object)?;
+        let (name, format, volume) = declaration(object)?;
         if !resources.contains_key(name) {
             let resource = assets.resource(name)?;
             ensure!(
@@ -84,22 +86,29 @@ pub(crate) fn prepare_audio(assets: &SceneAssets, scene: &Value) -> Result<Vec<P
                 total <= MAX_AUDIO_BYTES,
                 "Scene audio total byte limit exceeded"
             );
-            validate_flac(&resource)?;
-            resources.insert(name.to_string(), resource);
+            if format == SceneAudioFormat::Flac {
+                validate_flac(&resource)?;
+            }
+            resources.insert(name.to_string(), (resource, format));
         }
         declarations.push((name.to_string(), volume));
     }
-    // All declarations, resource sizes, and headers pass before any payload is
-    // copied. Duplicate sound paths share one sealed anonymous descriptor.
+    // Check declarations and resource size limits before copying. Duplicate
+    // sound paths share one sealed anonymous descriptor.
     let clips = resources
         .into_iter()
-        .map(|(name, resource)| {
+        .map(|(name, (resource, format))| {
             let bytes = resource.len();
+            let source = sealed_source(&resource)?;
+            if format == SceneAudioFormat::Mp3 {
+                validate_mp3(&source, bytes)?;
+            }
             Ok((
                 name,
                 Arc::new(AudioClip {
-                    source: Arc::new(sealed_source(&resource)?),
+                    source: Arc::new(source),
                     bytes,
+                    format,
                 }),
             ))
         })
@@ -113,7 +122,7 @@ pub(crate) fn prepare_audio(assets: &SceneAssets, scene: &Value) -> Result<Vec<P
         .collect())
 }
 
-fn declaration(object: &Value) -> Result<(&str, f64)> {
+fn declaration(object: &Value) -> Result<(&str, SceneAudioFormat, f64)> {
     let object = object
         .as_object()
         .ok_or_else(|| unsupported("audio", "Invalid sound object"))?;
@@ -154,12 +163,22 @@ fn declaration(object: &Value) -> Result<(&str, f64)> {
             "Only a single-file loop sound is supported",
         ));
     }
-    let name = sounds[0]
-        .as_str()
-        .filter(|name| name.ends_with(".flac"))
-        .ok_or_else(|| unsupported("audio", "Only prepared FLAC sound resources are supported"))?;
+    let format_error = || unsupported("audio", "Only FLAC and bounded MP3 sounds are supported");
+    let name = sounds[0].as_str().ok_or_else(format_error)?;
+    let format = match name.rsplit_once('.').map(|(_, extension)| extension) {
+        Some("flac") => SceneAudioFormat::Flac,
+        Some(extension) if extension.eq_ignore_ascii_case("mp3") => SceneAudioFormat::Mp3,
+        _ => return Err(format_error()),
+    };
     require_bool(object, "startsilent", false)?;
-    require_bool(object, "muteineditor", false)?;
+    // The native sound descriptor's editor bit does not mute wallpaper
+    // playback. Validate the author flag without changing playback policy.
+    if object
+        .get("muteineditor")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err(unsupported("audio", "Invalid sound editor mute flag"));
+    }
     require_bool(object, "disablepropagation", false)?;
     require_bool(object, "solid", true)?;
     // The verified native single-file loop branch sets loop=true/countdown=0;
@@ -176,7 +195,7 @@ fn declaration(object: &Value) -> Result<(&str, f64)> {
             "Sound volume must be between zero and one",
         ));
     }
-    Ok((name, volume))
+    Ok((name, format, volume))
 }
 
 fn require_bool(object: &Map<String, Value>, key: &str, expected: bool) -> Result<()> {
@@ -230,6 +249,126 @@ fn validate_flac(resource: &SceneResource) -> Result<()> {
     Ok(())
 }
 
+fn mp3_error(detail: &'static str) -> anyhow::Error {
+    unsupported("audio", detail)
+}
+
+fn syncsafe_size(bytes: [u8; 4]) -> Option<u64> {
+    bytes.into_iter().try_fold(0, |value, byte| {
+        (byte < 0x80).then_some((value << 7) | u64::from(byte))
+    })
+}
+
+fn read_id3v2(input: &mut BufReader<&File>, header: [u8; 10], bytes: u64) -> Result<u64> {
+    let version = header[3];
+    ensure!(
+        matches!(version, 3 | 4) && header[4..6] == [0, 0],
+        mp3_error("Unsupported ID3v2 version or flags")
+    );
+    let mut remaining = syncsafe_size(header[6..10].try_into().unwrap())
+        .filter(|size| *size <= MAX_ID3V2_BYTES && *size < bytes - 10)
+        .ok_or_else(|| mp3_error("Invalid ID3v2 tag size"))?;
+    let next_audio = 10 + remaining;
+    while remaining >= 10 {
+        let mut frame = [0; 10];
+        input.read_exact(&mut frame)?;
+        remaining -= 10;
+        if frame[0] == 0 {
+            ensure!(frame == [0; 10], mp3_error("Invalid ID3v2 padding"));
+            break;
+        }
+        ensure!(
+            frame[..4]
+                .iter()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+                && frame[8..10] == [0, 0],
+            mp3_error("Unsupported ID3v2 frame name or flags")
+        );
+        let encoded_size = frame[4..8].try_into().unwrap();
+        let size = if version == 3 {
+            Some(u64::from(u32::from_be_bytes(encoded_size)))
+        } else {
+            syncsafe_size(encoded_size)
+        }
+        .filter(|size| *size > 0 && *size <= remaining)
+        .ok_or_else(|| mp3_error("Invalid ID3v2 frame length"))?;
+        input.seek_relative(size as i64)?;
+        remaining -= size;
+    }
+    let mut padding = [0; 4096];
+    while remaining != 0 {
+        let count = remaining.min(padding.len() as u64) as usize;
+        input.read_exact(&mut padding[..count])?;
+        ensure!(
+            padding[..count].iter().all(|byte| *byte == 0),
+            mp3_error("Invalid ID3v2 padding")
+        );
+        remaining -= count as u64;
+    }
+    Ok(next_audio)
+}
+
+fn validate_mp3(source: &File, bytes: u64) -> Result<()> {
+    ensure!(bytes >= 10, mp3_error("Truncated MP3 resource"));
+    let mut header = [0; 10];
+    let mut input = BufReader::with_capacity(READ_CHUNK, source);
+    input.read_exact(&mut header)?;
+    let mut offset = if &header[..3] == b"ID3" {
+        read_id3v2(&mut input, header, bytes)?
+    } else {
+        input.rewind()?;
+        0
+    };
+
+    const BITRATES: [u64; 16] = [
+        0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0,
+    ];
+    const RATES: [u64; 4] = [44_100, 48_000, 32_000, 0];
+    let mut stream = None;
+    let mut frames = 0;
+    while offset < bytes {
+        let mut header = [0; 4];
+        let remaining = bytes - offset;
+        ensure!(remaining >= 4, mp3_error("Truncated MP3 frame"));
+        input.read_exact(&mut header)?;
+        if remaining == 128 && &header[..3] == b"TAG" {
+            // ID3v1 is valid only after the final complete MP3 frame.
+            break;
+        }
+        let header = u32::from_be_bytes(header);
+        let bitrate = BITRATES[((header >> 12) & 15) as usize];
+        let rate = RATES[((header >> 10) & 3) as usize];
+        ensure!(
+            header & 0xfffe_0000 == 0xfffa_0000 && bitrate != 0 && rate != 0 && header & 3 != 2,
+            mp3_error("Invalid or unsupported MPEG-1 Layer III frame")
+        );
+        let mono = (header >> 6) & 3 == 3;
+        let expected = stream.get_or_insert((rate, mono));
+        ensure!(
+            *expected == (rate, mono),
+            mp3_error("MP3 stream format changes between frames")
+        );
+        let length = 144_000 * bitrate / rate + u64::from(header >> 9 & 1);
+        ensure!(
+            length <= remaining,
+            mp3_error("Truncated MP3 frame payload")
+        );
+        frames += 1;
+        ensure!(
+            frames * 1152 <= rate * 6 * 3600,
+            mp3_error("MP3 duration exceeds the Scene audio limit")
+        );
+        input.seek_relative((length - 4) as i64)?;
+        offset += length;
+    }
+    ensure!(
+        frames >= 2,
+        mp3_error("MP3 needs at least two complete frames")
+    );
+    input.rewind()?;
+    Ok(())
+}
+
 fn sealed_source(resource: &SceneResource) -> Result<File> {
     let name = CString::new("lwe-scene-audio")?;
     let descriptor =
@@ -279,7 +418,7 @@ impl SceneAudio {
             .iter()
             .map(|sound| {
                 Ok((
-                    MpvAudioPlayer::new(sound.clip.source.clone())?,
+                    MpvAudioPlayer::new(sound.clip.source.clone(), sound.clip.format)?,
                     sound.volume,
                 ))
             })
@@ -411,6 +550,11 @@ mod tests {
             file.write_all(&bytes).unwrap();
             file.set_len(size.max(42)).unwrap();
         }
+        fn write(&self, name: &str, bytes: &[u8]) {
+            let path = self.0.join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
         fn assets(&self) -> SceneAssets {
             SceneAssets::open(&self.0, None).unwrap()
         }
@@ -423,6 +567,126 @@ mod tests {
 
     fn sound(id: u64, name: &str, volume: f64) -> Value {
         json!({"id":id,"name":"Authored sound","sound":[name],"playbackmode":"loop","volume":volume,"mintime":1.0,"maxtime":5.0,"startsilent":false,"muteineditor":false,"solid":true,"disablepropagation":false})
+    }
+
+    fn mp3_frames() -> Vec<u8> {
+        // Two structurally complete MPEG-1 Layer III frames. The separate
+        // opt-in test exercises the libmpv decoder with actual audio payloads.
+        let mut frames = vec![0; 417 + 418];
+        frames[..4].copy_from_slice(&[0xff, 0xfb, 0x90, 0x00]);
+        frames[417..421].copy_from_slice(&[0xff, 0xfb, 0x92, 0x00]);
+        frames
+    }
+
+    #[test]
+    fn mp3_loop_accepts_bounded_tags_and_editor_mute_without_changing_volume() {
+        let resources = AuthoredResources::new();
+        let mut object = sound(1, "sounds/authored.MP3", 0.5);
+        object["muteineditor"] = json!(true);
+        let scene = json!({"objects":[object.clone(), object]});
+        let raw = mp3_frames();
+        for version in [None, Some(3), Some(4)] {
+            let mut bytes = Vec::new();
+            if let Some(version) = version {
+                bytes.extend([b'I', b'D', b'3', version, 0, 0, 0, 0, 0, 16]);
+                bytes.extend(b"TSSE\x00\x00\x00\x03\x00\x00\x00OK\x00\x00\x00");
+            }
+            bytes.extend(&raw);
+            if version == Some(3) {
+                bytes.extend(b"TAG");
+                bytes.resize(bytes.len() + 125, 0);
+            }
+            resources.write("sounds/authored.MP3", &bytes);
+            let prepared = prepare_audio(&resources.assets(), &scene).unwrap();
+            assert_eq!(prepared[0].clip.format, SceneAudioFormat::Mp3);
+            assert_eq!(prepared[0].volume, 0.5);
+            assert_eq!(prepared[0].clip_identity(), prepared[1].clip_identity());
+            assert_eq!(prepared_audio_bytes(&prepared), bytes.len() as u64);
+        }
+    }
+
+    #[test]
+    fn mp3_rejects_unknown_contents_free_bitrate_and_incomplete_streams() {
+        let resources = AuthoredResources::new();
+        let scene = json!({"objects":[sound(1,"input.mp3",1.0)]});
+        let raw = mp3_frames();
+        for (byte, value) in [(1, 0xf3), (2, 0x00), (419, 0x94), (420, 0xc0)] {
+            let mut changed = raw.clone();
+            changed[byte] = value;
+            resources.write("input.mp3", &changed);
+            assert!(prepare_audio(&resources.assets(), &scene).is_err());
+        }
+        let mut oversized_tag = b"ID3\x04\x00\x00\x00\x00\x7f\x7f".to_vec();
+        oversized_tag.extend(&raw);
+        let mut bad_tag = b"ID3\x03\x00\x00\x00\x00\x00\x0aTSSE\x00\x00\x00\x00\x00\x00".to_vec();
+        bad_tag.extend(&raw);
+        let mut trailing = raw.clone();
+        trailing.extend(b"unexpected");
+        for bytes in [
+            raw[..417].to_vec(),
+            raw[..raw.len() - 1].to_vec(),
+            oversized_tag,
+            bad_tag,
+            trailing,
+            b"fLaCthis-is-not-mp3".to_vec(),
+        ] {
+            resources.write("input.mp3", &bytes);
+            assert!(prepare_audio(&resources.assets(), &scene).is_err());
+        }
+    }
+
+    #[test]
+    #[ignore = "requires LWE_TEST_SCENE_MP3 with a real audio file; ao=null, no desktop/backend"]
+    fn actual_mp3_source_decodes_with_a_null_output() -> Result<()> {
+        use std::time::{Duration, Instant};
+
+        let path =
+            PathBuf::from(std::env::var_os("LWE_TEST_SCENE_MP3").context("Missing MP3 fixture")?);
+        let metadata = std::fs::metadata(&path)?;
+        ensure!(
+            metadata.is_file() && metadata.len() <= MAX_CLIP_BYTES,
+            "Invalid MP3 fixture"
+        );
+        let resources = AuthoredResources::new();
+        std::fs::copy(path, resources.0.join("source.mp3"))?;
+        let mut object = sound(1, "source.mp3", 0.5);
+        object["muteineditor"] = json!(true);
+        let prepared = prepare_audio(&resources.assets(), &json!({"objects":[object]}))?;
+        let clip = &prepared[0].clip;
+        let weak = Arc::downgrade(&clip.source);
+        let mut player = MpvAudioPlayer::new_null_output(Arc::clone(&clip.source), clip.format)?;
+        drop(prepared);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !player.poll_ready()? {
+            ensure!(Instant::now() < deadline, "Prepared MP3 did not load");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(player.property("current-ao").is_none_or(|ao| ao == "null"));
+        assert_eq!(player.property("file-format").as_deref(), Some("mp3"));
+        assert_eq!(player.property("pause").as_deref(), Some("yes"));
+        assert_eq!(player.property("mute").as_deref(), Some("yes"));
+        player.set_policy(true, false, 0.0)?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            player.poll_ready()?;
+            let time = player
+                .property("time-pos")
+                .and_then(|time| time.parse::<f64>().ok());
+            if time.is_some_and(|time| time >= 0.025) {
+                break;
+            }
+            ensure!(
+                Instant::now() < deadline,
+                "Prepared MP3 did not play on null output"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(player.property("current-ao").as_deref(), Some("null"));
+        assert_eq!(player.property("mute").as_deref(), Some("yes"));
+        player.set_policy(false, true, 0.0)?;
+        drop(player);
+        assert!(weak.upgrade().is_none());
+        Ok(())
     }
 
     #[test]

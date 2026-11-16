@@ -732,18 +732,33 @@ pub(crate) struct MpvAudioPlayer {
     failure: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SceneAudioFormat {
+    Flac,
+    Mp3,
+}
+
 // The private handle has one owner; libmpv's client API permits cross-thread use.
 unsafe impl Send for MpvAudioPlayer {}
 
 impl MpvAudioPlayer {
-    pub(crate) fn new(source: Arc<std::fs::File>) -> Result<Self> {
-        Self::create(source, false, None)
+    pub(crate) fn new(source: Arc<std::fs::File>, format: SceneAudioFormat) -> Result<Self> {
+        Self::create(source, false, None, Some(format))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_null_output(
+        source: Arc<std::fs::File>,
+        format: SceneAudioFormat,
+    ) -> Result<Self> {
+        Self::create(source, true, None, Some(format))
     }
 
     fn create(
         source: Arc<std::fs::File>,
         null_output: bool,
         private_device: Option<&str>,
+        format: Option<SceneAudioFormat>,
     ) -> Result<Self> {
         use std::os::fd::AsRawFd;
         let handle = unsafe { libmpv_sys::mpv_create() };
@@ -778,6 +793,10 @@ impl MpvAudioPlayer {
             ("audio-client-name", "LWE Scene audio"),
         ] {
             player.set_option(name, value)?;
+        }
+        if format == Some(SceneAudioFormat::Mp3) {
+            player.set_option("demuxer", "lavf")?;
+            player.set_option("demuxer-lavf-format", "mp3")?;
         }
         if null_output {
             player.set_option("ao", "null")?;
@@ -910,7 +929,7 @@ impl MpvAudioPlayer {
     }
 
     #[cfg(test)]
-    fn property(&self, name: &str) -> Option<String> {
+    pub(crate) fn property(&self, name: &str) -> Option<String> {
         let name = CString::new(name).unwrap();
         let value = unsafe { libmpv_sys::mpv_get_property_string(self.handle, name.as_ptr()) };
         if value.is_null() {
@@ -984,7 +1003,7 @@ mod audio_tests {
         // separate from physical audio output or desktop acceptance.
         let source = authored_pcm();
         let weak = Arc::downgrade(&source);
-        let mut player = MpvAudioPlayer::create(source, true, None).unwrap();
+        let mut player = MpvAudioPlayer::create(source, true, None, None).unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
         while !player.poll_ready().unwrap() {
             assert!(
@@ -1185,7 +1204,7 @@ mod audio_tests {
         let source = authored_pcm();
         let weak = Arc::downgrade(&source);
         let device = format!("pulse/{}", sink.name);
-        let mut player = MpvAudioPlayer::create(source, false, Some(&device)).unwrap();
+        let mut player = MpvAudioPlayer::create(source, false, Some(&device), None).unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
         while !player.poll_ready().unwrap() {
             assert!(Instant::now() < deadline);

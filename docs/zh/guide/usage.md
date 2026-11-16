@@ -51,7 +51,7 @@ LWE 的产品模型识别常见 Wallpaper Engine 内容类型：
 
 旧式图片材质子集包含 `genericimage`、双纹理和四纹理两种 `flowimage`、`swayimage` 与 `flag`。图层尺寸可来自图片模型的 `width`/`height`，较小图层保留作者的缩放和位置。这些材质使用项目原始着色器资源、受支持的重复/边缘限制纹理标志、带 padding 的图片边界和时间动画。声明式 `usershadervalues` 映射把经验证的项目属性连接到材质 uniform，包含颜色选择；用户映射与材质常量指向同一值时，尚不宣称覆盖优先级与原引擎精确一致。
 
-特效子集包含 Shake、Shine、WaterRipple、Iris、Scroll、Pulse 和有界的项目自带特效 pass，以及 sprite/rope 粒子、事件子系统和四 pass LDR 泛光。粒子可使用经验证的单图片 `TEXS0002` 精灵图集，支持序列/随机帧选择与序列帧插值，以及有界的平面湍流、透明度/尺寸振荡和角运动；噪声与随机行为尚未核对原引擎。内嵌音频支持每层一条 FLAC 循环音轨，保留作者音量。精确声明式 `user`/`value` 绑定使用经验证的 bool、slider、color 和 combo 选择，combo 条件相等可控制可见性。项目/显示器选择经过验证并与分配一起保存。未知绑定/组件形状、缺失或错误声明、文字、3D 模型、骨骼动画、带时长或多图片 TEXS、视频纹理和 HDR 继续阻断。
+特效子集包含 Shake、Shine、WaterRipple、Iris、Scroll、Pulse 和有界的项目自带特效 pass，以及 sprite/rope 粒子、事件子系统和四 pass LDR 泛光。粒子可使用经验证的单图片 `TEXS0002` 精灵图集，支持序列/随机帧选择与序列帧插值，以及有界的平面湍流、透明度/尺寸振荡和角运动；噪声与随机行为尚未核对原引擎。内嵌音频支持每层一条 FLAC 或 MPEG-1 Layer III MP3 循环音轨，保留作者音量。精确声明式 `user`/`value` 绑定使用经验证的 bool、slider、color 和 combo 选择，combo 条件相等可控制可见性。项目/显示器选择经过验证并与分配一起保存。直接图层显隐绑定到缺失的普通控件时保留作者声明的布尔值。未知绑定/组件形状、其他缺失声明、错误声明、文字、3D 模型、骨骼动画、带时长或多图片 TEXS、视频纹理和 HDR 继续阻断。
 
 受限纯标量 SceneScript 在 CPU 准备阶段由声明控件计算属性。另一条有界 worker 路径现已实现 `init`、`update`、`applyUserProperties`、有限 `Vec3`/图层访问，以及初始化期间的图片模型 `createLayer(path)`；真实 64 档 `average` 音频缓冲可驱动音频条。未知 API、导入、通用动态访问、时钟/时间 API、随机数及更广泛交互仍阻断。原始 Yakuza 的四个背景 × 音频条开关已通过 CPU 准备；五组完整离屏 GPU 用例及真实 Library/Desktop 控件/保存/失败/重启/重置流程已在记录的单输出 `niri`/AMD 680M 桌面通过，自有静音音频输出的真实 monitor 采集 → 64 档 FFT → 原始脚本 → 离屏音频条像素也已独立通过，未证明用户当前音乐/视频路由或 Windows 一致性，详见 [Yakuza 开发记录](../contributing/guide.md#yakuza-扩展-2026-10-12)。
 
