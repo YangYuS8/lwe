@@ -301,6 +301,7 @@ impl MpvPlayer {
         ];
 
         let mut render_context: *mut libmpv_sys::mpv_render_context = ptr::null_mut();
+        egl_context.mark_current_context_foreign()?;
         let ret = unsafe {
             libmpv_sys::mpv_render_context_create(
                 &mut render_context,

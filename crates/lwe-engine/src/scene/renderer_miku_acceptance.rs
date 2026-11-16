@@ -122,6 +122,9 @@ fn original_miku_default_eight_frames_three_histories_and_cached_rollback() -> R
     let output_plan = prepared.resource_plan_for_output(2160, 1440)?;
     output_plan.preflight(0, 0)?;
     let mut renderer = SceneRenderer::initialize_shared(&prepared, Rc::clone(&pool))?;
+    let late_enabled = std::env::var("LWE_MIKU_LATE_COMPOSITE").as_deref() == Ok("1");
+    renderer.set_canvas_replacement_allowed(late_enabled);
+
     let history_ids = renderer
         .layers
         .iter()
@@ -141,7 +144,14 @@ fn original_miku_default_eight_frames_three_histories_and_cached_rollback() -> R
     let mut last = Vec::new();
     for index in 0..8 {
         let time = (index as f64 + 0.25) * duration;
+        let before_late = renderer.canvas_replacements;
         let pixels = draw(&mut renderer, &output, time, false)?;
+        let late_used = renderer.canvas_replacements == before_late + 1;
+        ensure!(
+            late_used == late_enabled,
+            "Private late Color28 branch did not match opt-in at frame {index}"
+        );
+
         let timed_alphas = prepared.layers.iter().enumerate().filter(|(_, l)| l.stages.iter().flat_map(|s| &s.passes).flat_map(|p| &p.textures).any(|b| matches!(b,TextureBinding::Static(i) if prepared.textures[*i].timed.is_some()))).map(|(i,_)| renderer.layers[i].tint[3]).collect::<Vec<_>>();
         ensure!(
             timed_alphas.len() == 2 && timed_alphas.iter().all(|a| *a > 0.),
@@ -174,7 +184,7 @@ fn original_miku_default_eight_frames_three_histories_and_cached_rollback() -> R
                     .all(|h| h["nontransparent_pixels"].as_u64().unwrap() > 0),
             "Original histories contain no visible accumulated input"
         );
-        frames.push(json!({"seq":renderer.accepted_seq,"scene_time":renderer.accepted_time,"selected":selected,"timed_alphas":timed_alphas,"histories":histories,"pixel_sha256":hash(&pixels),"gpu_reserved_bytes":renderer.gpu_payload_bytes(),"pool_resident_bytes":pool.resident_bytes()?}));
+        frames.push(json!({"seq":renderer.accepted_seq,"scene_time":renderer.accepted_time,"selected":selected,"timed_alphas":timed_alphas,"histories":histories,"pixel_sha256":hash(&pixels),"gpu_reserved_bytes":renderer.gpu_payload_bytes(),"pool_resident_bytes":pool.resident_bytes()?,"private_late_color28_used":late_used}));
         ensure!(
             renderer.gpu_payload_bytes() <= MAX_SCENE_GPU_BYTES,
             "Full default graph exceeded unchanged cap"
@@ -253,6 +263,7 @@ fn original_miku_default_eight_frames_three_histories_and_cached_rollback() -> R
     ensure!(!resumed.is_empty(), "Restored generation did not rehydrate");
     let cpu = super::super::timed_runtime::scene_texture_memory_budget().usage();
     renderer.cleanup();
+    let late_swaps = renderer.canvas_replacements;
     drop(renderer);
     pool.drain_retired()?;
     ensure!(
@@ -265,7 +276,7 @@ fn original_miku_default_eight_frames_three_histories_and_cached_rollback() -> R
     let cleaned = super::super::timed_runtime::scene_texture_memory_budget().usage();
     let after = hashes(&project)?;
     ensure!(before == after, "Original assets changed during test");
-    let value = json!({"scope":"Original full-default CPU graph and software EGL offscreen pixels; no desktop application, hardware GPU, Windows renderer parity or physical sleep claim","summary":{"layers":summary.layer_count,"effects":summary.effect_count,"passes":summary.pass_count},"graph":graph,"cpu_ledger_scope":"production reservations; excludes test-only output/history readback Vecs, allocator overhead and RSS", "source_before":before,"source_after":after,"driver":driver,"sources":sources,"history_count":history_ids.len(),"frames":frames,"paused_exact":true,"frozen_rollback_exact":true,"transition_reserved_bytes":transition_bytes,"frozen_history_cpu_bytes":frozen_history_cpu_bytes,"legacy_gpu_history_transition_bytes":legacy_gpu_history_transition_bytes,"gpu_limit_bytes":MAX_SCENE_GPU_BYTES,"cpu_charged_bytes":cpu.charged_bytes,"cpu_peak_reserved_bytes":cpu.peak_charged_bytes,"cpu_after_cleanup":cleaned.charged_bytes,"pool_after_cleanup":pool.resident_bytes()?});
+    let value = json!({"private_late_color28":{"enabled":late_enabled,"swaps":late_swaps},"scope":"Original full-default CPU graph and software EGL offscreen pixels; no desktop application, hardware GPU, Windows renderer parity or physical sleep claim","summary":{"layers":summary.layer_count,"effects":summary.effect_count,"passes":summary.pass_count},"graph":graph,"cpu_ledger_scope":"production reservations; excludes test-only output/history readback Vecs, allocator overhead and RSS", "source_before":before,"source_after":after,"driver":driver,"sources":sources,"history_count":history_ids.len(),"frames":frames,"paused_exact":true,"frozen_rollback_exact":true,"transition_reserved_bytes":transition_bytes,"frozen_history_cpu_bytes":frozen_history_cpu_bytes,"legacy_gpu_history_transition_bytes":legacy_gpu_history_transition_bytes,"gpu_limit_bytes":MAX_SCENE_GPU_BYTES,"cpu_charged_bytes":cpu.charged_bytes,"cpu_peak_reserved_bytes":cpu.peak_charged_bytes,"cpu_after_cleanup":cleaned.charged_bytes,"pool_after_cleanup":pool.resident_bytes()?});
     std::fs::write(report, serde_json::to_vec_pretty(&value)?)?;
     Ok(())
 }

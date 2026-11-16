@@ -15,6 +15,7 @@ pub struct EglContext {
     config: egl::Config,
     context: egl::Context,
     alive: Arc<AtomicBool>,
+    foreign_gl: Cell<bool>,
 }
 
 /// Keep the initialized display/library alive until its last context/surface
@@ -132,11 +133,28 @@ impl EglContext {
             config: configs,
             context,
             alive: Arc::new(AtomicBool::new(true)),
+            foreign_gl: Cell::new(false),
         })
     }
 
     pub(crate) fn scene_context_identity(&self) -> (egl::Context, std::sync::Weak<AtomicBool>) {
         (self.context, Arc::downgrade(&self.alive))
+    }
+
+    pub(crate) fn mark_current_context_foreign(&self) -> Result<()> {
+        ensure!(
+            self.display.instance.get_current_context() == Some(self.context)
+                && self.display.instance.get_current_display() == Some(self.display.handle),
+            "Foreign GL requires its EGL context to be current"
+        );
+        // Once foreign GL has been given the context, its state cannot be
+        // assumed pristine, even if initialization fails or the player drops.
+        self.foreign_gl.set(true);
+        Ok(())
+    }
+
+    pub(crate) fn has_foreign_gl(&self) -> bool {
+        self.foreign_gl.get()
     }
 
     /// Create EGL window surface for a Wayland surface

@@ -575,7 +575,7 @@ fn render_all_surfaces(state: &mut EngineState) {
         // Render frame. Only a successful swap starts the next presentation
         // interval; command/compositor wakeups cannot shorten it.
         let result = budget_result.and_then(|()| {
-            session.render_frame_to_surface(
+            session.render_frame_to_surface_owned(
                 egl_context,
                 &surface_info.wl_surface,
                 surface_info.width as i32,

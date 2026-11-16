@@ -313,3 +313,49 @@ void main(){lwe_FragColor=mix(texture(g_Texture0,v_UV),texture(g_Texture4,v_UV),
     }
     Ok(())
 }
+
+#[test]
+#[ignore = "requires an opt-in OpenGL 4.5 offscreen context"]
+fn late_canvas_replacement_requires_authorization_source_and_full_coverage() -> Result<()> {
+    let _context = sharing_tests::Offscreen::new()?;
+    let mut scene = fixture(true, false);
+    let layer = &mut scene.layers[1];
+    layer.blend = Blend::Replace;
+    layer.stages[0].passes[0].textures = vec![TextureBinding::Static(0)];
+    layer.composite = Some(fragment(
+        "#version 130
+in vec2 v_UV;
+out vec4 lwe_FragColor;
+uniform sampler2D g_Texture0;
+uniform sampler2D g_Texture4;
+void main(){lwe_FragColor=mix(texture(g_Texture0,v_UV),texture(g_Texture4,v_UV),0.5);}",
+    ));
+    let mut reference = SceneRenderer::initialize(&scene)?;
+    let mut candidate = SceneRenderer::initialize(&scene)?;
+    assert!(!candidate.layers[1].full_canvas_shader);
+
+    // Grant the tiny authored fixture an independently known full-write
+    // contract only after testing that unknown sources take the fallback.
+    for (index, (allowed, known, scale, replacements)) in [
+        (true, false, 1., 0),
+        (false, true, 1., 0),
+        (true, true, 1., 1),
+        (false, true, 1., 1),
+        (true, true, 0.5, 1),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        candidate.set_canvas_replacement_allowed(allowed);
+        candidate.layers[1].full_canvas_shader = known;
+        candidate.layers[1].scale = [scale; 2];
+        reference.layers[1].scale = [scale; 2];
+        let time = index as f64 * 0.125;
+        assert_eq!(
+            draw(&mut candidate, [2, 2], time, false)?,
+            draw(&mut reference, [2, 2], time, false)?
+        );
+        assert_eq!(candidate.canvas_replacements, replacements);
+    }
+    Ok(())
+}

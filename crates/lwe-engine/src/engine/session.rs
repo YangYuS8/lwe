@@ -183,6 +183,7 @@ impl RendererInstance {
         force: bool,
         resized: bool,
         redraw: bool,
+        allow_canvas_replacement: bool,
     ) -> Result<bool> {
         match self {
             Self::Video(player) => {
@@ -212,11 +213,14 @@ impl RendererInstance {
                 if *drawn && !*animated && !force && !resized && !redraw {
                     return Ok(false);
                 }
+                renderer.set_canvas_replacement_allowed(allow_canvas_replacement);
                 let rendered = if redraw || force || resized {
-                    renderer.render_forced(width, height, clock.seconds())?
+                    renderer.render_forced(width, height, clock.seconds())
                 } else {
-                    renderer.render(width, height, clock.seconds())?
+                    renderer.render(width, height, clock.seconds())
                 };
+                renderer.set_canvas_replacement_allowed(false);
+                let rendered = rendered?;
                 *drawn |= rendered;
                 Ok(rendered)
             }
@@ -664,6 +668,31 @@ impl WallpaperSession {
         height: i32,
         force: bool,
     ) -> Result<bool> {
+        self.render_frame_to_surface_inner(egl, surface, width, height, force, false)
+    }
+
+    // The engine owns this context and serializes every GL producer on one
+    // thread. The public entry point cannot make that guarantee.
+    pub(super) fn render_frame_to_surface_owned(
+        &mut self,
+        egl: &EglContext,
+        surface: &WlSurface,
+        width: i32,
+        height: i32,
+        force: bool,
+    ) -> Result<bool> {
+        self.render_frame_to_surface_inner(egl, surface, width, height, force, true)
+    }
+
+    fn render_frame_to_surface_inner(
+        &mut self,
+        egl: &EglContext,
+        surface: &WlSurface,
+        width: i32,
+        height: i32,
+        force: bool,
+        engine_owned: bool,
+    ) -> Result<bool> {
         if self.state == PlaybackState::Stopped && self.egl_window.is_some() {
             return Ok(false);
         }
@@ -699,6 +728,7 @@ impl WallpaperSession {
             force || is_pending,
             resized,
             self.redraw_needed,
+            engine_owned && !egl.has_foreign_gl(),
         )? {
             self.metrics.draws = self.metrics.draws.saturating_add(1);
             if let Err(error) = egl.swap_buffers(window) {

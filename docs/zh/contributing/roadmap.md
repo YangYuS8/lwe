@@ -180,6 +180,14 @@ workspace 检查通过：ordinary 559 项（含两项 doctest）、36 项 ignore
 
 另补完整原图固定频谱 AMD 离屏基线/候选对照：2160×1440 输出和原 4K composition target 下，八输出/二十四历史、metadata、replay 及资源/清理记录全部一致。这是既有测试两次执行，与软件及实时 PCM 原生证据分列，不增加 unique 用例数，也不证明 Windows 等价。
 
+### Scene AMD 硬件计数器调查（2026-11-16）
+
+在已合并 #113 `13c2ee1` 基线上，Radeon 680M/GFX10.3、Mesa 26.2.6 暴露 48 个 group、11,001 个计数器。monitor 复用隔离失败；144 个独立新 context 的合成 0/1/2 draw 对照校准九个 selector，零 draw 计数均为零。Miku 共 48 份独立采样，使用序号 2/5/8、3840×2160 采样目标，十八个匹配空区间均为零。八输出 hash 匹配冻结 off 对照，未测试历史像素或原生播放。
+
+相比原 Simple Audio Bars，ColorMode 28 的 CB0 write requests 约 2.46 倍、TCP0/TCP1 各自 L0 requests 约 1.53 倍、SQ 像素 VALU issues 约 1.18 倍；Audio 的混合 SQ69 buffer/image load-or-sample instructions 更多。独立 timer-only 中位数为 4.2821/4.8870 ms（Audio/Color）。这是事件指标与完成区间，不是耗时占比、吞吐或因果瓶颈。Audio 恒等别名虽在 Miku 尺寸相同，但严格 AMD 16381×257 fixture 有 16,839,668 字节中 850,965 字节不同（最大差 1），已拒绝。私有 CopyImage 试验的八输出 hash 匹配，但未缩短 snapshot 完成区间（每路径六样本，中位数 Blit 1.097000 ms、CopyImage 1.136580 ms），不保留。
+
+保留的晚期合成变更交换两个现有 canvas 的角色，省掉最后一个合格原合成的一次 snapshot。要求精确匹配展开/适配后的 ColorMode 28 shader、恒等矩阵 Replace draw、安全 GL 覆盖、无读写别名及从未交给 libmpv GL 的引擎自有 EGL；公开/外部路径和不满足门控的情况保留原 snapshot。原 shader、资源/分辨率、25 逻辑 pass 保留。独立 AMD 同二进制串行 A–B–B–A 每路径测得 32 个成功帧，完成区间合并中位数 **40.439025 → 39.390805 ms（−2.59%）**；不能外推原生 FPS。生产 renderer 在 AMD 与 llvmpipe 各自匹配八输出、24 历史 hash，预算不变、结束清理零。三项专项 GPU 测试和 562 项普通 workspace 测试通过（含两项 doctest，43 项忽略）。独立嵌套 `niri` 功能检查通过：无插桩路径动画、暂停 idle、恢复、暂停时一次 draw/swap 换静态内容、静态空闲和清除/join；插桩 Scene → Video → Scene 保持 EGL generation 1（Video 89 次、恢复 Scene 71 次 swap），libmpv foreign-GL 交接前有 194 次 layer 8 替换，交接后为零。该检查验证回退，不作为原生 FPS 增益或 UI/安装包验收。见[硬件计数器记录](./guide.md#scene-hardware-counters-2026-11-16)。此前证据保持原样，私有诊断代码/产物不提交，物理休眠/恢复继续跳过。
+
 ### 实施顺序与阶段出口
 
 下表保留未来完整阶段的验收目标，其中物理休眠恢复已明确移出当前批次。有界 P0 inventory、首批 P1 运行时/设置、受限 P2 相机与可编辑属性持久化，以及默认混合项目 CPU/GPU 路径已实现。默认和属性编辑器原生 UI（包括真实保存失败/重试及十二秒自有全屏恢复）已通过，其他生命周期验收仍未完成，没有标记任何完整阶段或日用里程碑完成。不支持的行为仍门控，已实现路径仍需通过所列验收。
