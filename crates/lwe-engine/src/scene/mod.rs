@@ -6,6 +6,7 @@
 mod audio;
 mod dynamic_script;
 mod hierarchy;
+mod media_input;
 mod particles;
 mod postprocess;
 mod prepared_source;
@@ -1411,6 +1412,11 @@ impl Preparation<'_> {
                             ),
                         ));
                     }
+                    if uniform.name == "g_ParallaxPosition" {
+                        // Both camera-off and admitted zero-influence cameras
+                        // publish the center in the native orthographic path.
+                        constants.insert(uniform.name.clone(), vec![0.5; 2]);
+                    }
                 }
             }
             for values in [overrides, defaults].into_iter().flatten() {
@@ -1757,7 +1763,6 @@ impl PreparedScene {
         let general = &scene["general"];
         for (key, code) in [
             ("hdr", "hdr"),
-            ("cameraparallax", "camera"),
             ("camerashake", "camera"),
             ("fogdistance", "shader"),
             ("fogheight", "shader"),
@@ -1766,6 +1771,22 @@ impl PreparedScene {
                 return Err(unsupported(code, key));
             }
         }
+        let parallax_amount = if boolean(general, "cameraparallax", false)? {
+            if general["cameraparallaxmouseinfluence"].as_f64() != Some(0.0)
+                || general["cameraparallaxdelay"].as_f64() != Some(0.0)
+            {
+                return Err(unsupported("camera", "cameraparallax"));
+            }
+            Some(
+                general["cameraparallaxamount"]
+                    .as_f64()
+                    .map(|amount| amount as f32)
+                    .filter(|amount| amount.is_finite())
+                    .ok_or_else(|| unsupported("camera", "invalid parallax amount"))?,
+            )
+        } else {
+            None
+        };
         if general
             .get("zoom")
             .is_some_and(|value| value.as_f64() != Some(1.0))
@@ -1790,7 +1811,17 @@ impl PreparedScene {
                 .all(|value| value.is_finite() && (1.0..=16384.0).contains(value)),
             "Invalid orthographic Scene dimensions"
         );
-        if let Some(camera) = scene.get("camera") {
+        let camera = scene.get("camera");
+        if parallax_amount.is_some()
+            && !camera
+                .is_some_and(|camera| camera.get("eye").is_some() && camera.get("center").is_some())
+        {
+            return Err(unsupported(
+                "camera",
+                "parallax requires an authored centered camera",
+            ));
+        }
+        if let Some(camera) = camera {
             if let Some(paths) = camera.get("paths")
                 && !paths.as_array().is_some_and(Vec::is_empty)
             {
@@ -1815,6 +1846,12 @@ impl PreparedScene {
                     "tilted or reversed orthographic camera",
                 ));
             }
+            if parallax_amount.is_some() && eye[..2] != [0.0, 0.0] {
+                return Err(unsupported(
+                    "camera",
+                    "parallax requires a centered camera base",
+                ));
+            }
         }
         let clear = vector(general, "clearcolor", [0.0; 3])?;
         let objects = scene["objects"]
@@ -1824,6 +1861,14 @@ impl PreparedScene {
             !objects.is_empty() && objects.len() <= MAX_LAYERS,
             "Scene layer count exceeds supported range"
         );
+        if parallax_amount.is_some()
+            && (!bindings.is_empty() || objects.iter().any(|layer| layer.get("parent").is_some()))
+        {
+            return Err(unsupported(
+                "camera",
+                "parallax with scripted or parented layers",
+            ));
+        }
         for binding in &mut bindings {
             binding.input = objects[binding.layer - 1][&binding.property].clone();
             if matches!(
@@ -1958,6 +2003,14 @@ impl PreparedScene {
                 || hierarchy.is_transform_only(index)
             {
                 continue;
+            }
+            if parallax_amount.is_some()
+                && (object.get("text").is_some() || object.get("particle").is_some())
+            {
+                return Err(unsupported(
+                    "camera",
+                    "parallax requires planar image layers",
+                ));
             }
             if object.get("particle").is_some() {
                 let simulation = particles::PreparedParticles::prepare(object, &mut |path| {
@@ -2216,7 +2269,7 @@ impl PreparedScene {
                     "Scene hierarchy exceeds projected numeric range",
                 ));
             }
-            let origin = vector(object, "origin", [width / 2.0, height / 2.0, 0.0])?;
+            let mut origin = vector(object, "origin", [width / 2.0, height / 2.0, 0.0])?;
             let angles = vector(object, "angles", [0.0; 3])?;
             // Under this fixed orthographic camera, a coplanar image has the
             // same affine XY projection. Depth or out-of-plane rotation still
@@ -2248,6 +2301,40 @@ impl PreparedScene {
                 .map(|value| value.as_u64().context("Invalid image color blend mode"))
                 .transpose()?
                 .unwrap_or(0);
+            if let Some(amount) = parallax_amount {
+                if fullscreen
+                    || perspective
+                    || color_mode != 0
+                    || origin[2] != 0.0
+                    || boolean(object, "copybackground", false)?
+                    || stages.iter().flat_map(|stage| &stage.passes).any(|pass| {
+                        pass.textures
+                            .iter()
+                            .any(|texture| matches!(texture, TextureBinding::FullFrame))
+                            || pass.shader.as_ref().is_some_and(|shader| {
+                                shader
+                                    .uniforms
+                                    .iter()
+                                    .any(|uniform| uniform.name.starts_with("g_Pointer"))
+                            })
+                    })
+                {
+                    return Err(unsupported(
+                        "camera",
+                        "unsupported parallax layer projection",
+                    ));
+                }
+                let depth = vector(object, "parallaxDepth", [1.0; 2])?;
+                for (axis, center) in [width / 2.0, height / 2.0].into_iter().enumerate() {
+                    origin[axis] += (origin[axis] - center) * amount * depth[axis];
+                }
+                if !origin.into_iter().all(f32::is_finite) {
+                    return Err(unsupported(
+                        "camera",
+                        "parallax offset exceeds the numeric range",
+                    ));
+                }
+            }
             if hierarchy_member
                 && (color_mode != 0
                     || stages.iter().flat_map(|stage| &stage.passes).any(|pass| {
@@ -2627,6 +2714,34 @@ mod tests {
         fixture.scene(serde_json::json!([{"image":"models/image.json","size":"4 4","visible":{"script":"export function init(){thisScene.createLayer('../private.json');}export function update(){}","value":true}}]));
         let error = PreparedScene::prepare(&fixture.0, None).unwrap_err();
         assert_eq!(unsupported_feature_code(&error), Some("scenescript"));
+    }
+
+    #[test]
+    fn centered_parallax_preserves_authored_depth_and_requires_no_pointer_or_delay() {
+        let fixture = Fixture::new();
+        let mut scene = serde_json::json!({
+            "camera":{"eye":"0 0 0","center":"0 0 -1","up":"0 1 0"},
+            "general":{
+                "orthogonalprojection":{"width":16,"height":16},
+                "cameraparallax":true,"cameraparallaxamount":0.5,
+                "cameraparallaxdelay":0,"cameraparallaxmouseinfluence":0
+            },
+            "objects":[
+                {"image":"models/image.json","origin":"12 4 0"},
+                {"image":"models/image.json","origin":"12 4 0","parallaxDepth":"-1 0"}
+            ]
+        });
+        fixture.write("scene.json", &serde_json::to_vec(&scene).unwrap());
+        let prepared = PreparedScene::prepare(&fixture.0, None).unwrap();
+        assert_eq!(prepared.layers[0].origin, [14., 2.]);
+        assert_eq!(prepared.layers[1].origin, [10., 4.]);
+        for field in ["cameraparallaxmouseinfluence", "cameraparallaxdelay"] {
+            scene["general"][field] = serde_json::json!(0.1);
+            fixture.write("scene.json", &serde_json::to_vec(&scene).unwrap());
+            let error = PreparedScene::prepare(&fixture.0, None).unwrap_err();
+            assert_eq!(unsupported_feature_code(&error), Some("camera"));
+            scene["general"][field] = serde_json::json!(0);
+        }
     }
 
     #[test]

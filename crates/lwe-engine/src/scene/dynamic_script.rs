@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
+    media_input::{MediaFeed, MediaSnapshot, Playback},
     property_timeline::{PropertyTimeline, Sample},
     unsupported,
 };
@@ -75,6 +76,7 @@ pub(super) struct PreparedScripts {
     created: Vec<CreatedLayer>,
     initial: Vec<LayerState>,
     audio: bool,
+    media: bool,
 }
 
 fn blocked(detail: impl Into<String>) -> anyhow::Error {
@@ -164,6 +166,7 @@ impl PreparedScripts {
             }
         }
         let mut total_bytes = 0_usize;
+        let mut media = false;
         for binding in &bindings {
             if !handles.contains(&binding.layer)
                 || !matches!(
@@ -203,7 +206,7 @@ impl PreparedScripts {
                     "dynamic script sources exceed their combined budget",
                 ));
             }
-            validate_source(
+            media |= validate_source(
                 &binding.source,
                 properties_map.keys().cloned().collect(),
                 binding.timeline.is_some(),
@@ -217,6 +220,7 @@ impl PreparedScripts {
             created: Vec::new(),
             initial: Vec::new(),
             audio: false,
+            media,
         };
         let stop = Arc::new(AtomicBool::new(false));
         let (mut vm, initialization) = Vm::new(&prepared, stop)?;
@@ -298,7 +302,10 @@ fn safe_name(name: &str) -> bool {
 // This is a source-language gate, not a JavaScript translator. QuickJS executes
 // the original module. New syntax or host capabilities must be admitted here
 // deliberately, rather than surviving preparation as an ignored property.
-fn validate_source(source: &str, properties: BTreeSet<String>, has_timeline: bool) -> Result<()> {
+const MEDIA_PLAYBACK: &str = "mediaPlaybackChanged";
+const MEDIA_PROPERTIES: &str = "mediaPropertiesChanged";
+
+fn validate_source(source: &str, properties: BTreeSet<String>, has_timeline: bool) -> Result<bool> {
     if source.is_empty()
         || source.len() > MAX_SOURCE_BYTES
         || source
@@ -325,6 +332,7 @@ fn validate_source(source: &str, properties: BTreeSet<String>, has_timeline: boo
         non_audio_names: BTreeSet::new(),
         declaring_builder: false,
         playback_callback: false,
+        media_parameter: None,
     };
     let mut callbacks = BTreeSet::new();
     for statement in &parsed.program.body {
@@ -374,8 +382,10 @@ fn validate_source(source: &str, properties: BTreeSet<String>, has_timeline: boo
                     .as_ref()
                     .map(|name| name.name.as_str())
                     .ok_or_else(|| blocked("dynamic callback requires a name"))?;
-                if !matches!(name, "init" | "update" | "applyUserProperties")
-                    || !callbacks.insert(name)
+                if !matches!(
+                    name,
+                    "init" | "update" | "applyUserProperties" | MEDIA_PLAYBACK | MEDIA_PROPERTIES
+                ) || !callbacks.insert(name)
                     || function.r#async
                     || function.generator
                     || function.params.rest.is_some()
@@ -411,7 +421,8 @@ fn validate_source(source: &str, properties: BTreeSet<String>, has_timeline: boo
             _ => return Err(blocked("unsupported dynamic module statement or import")),
         }
     }
-    if !callbacks.contains("update") {
+    let media = callbacks.contains(MEDIA_PLAYBACK) || callbacks.contains(MEDIA_PROPERTIES);
+    if !callbacks.contains("update") && !media {
         return Err(blocked("dynamic script requires an update callback"));
     }
     for statement in &parsed.program.body {
@@ -434,15 +445,30 @@ fn validate_source(source: &str, properties: BTreeSet<String>, has_timeline: boo
                     unreachable!("declarations validated above")
                 };
                 validation.playback_callback = has_timeline;
+                let callback_name = function
+                    .id
+                    .as_ref()
+                    .expect("validated callback name")
+                    .name
+                    .as_str();
+                if matches!(callback_name, MEDIA_PLAYBACK | MEDIA_PROPERTIES)
+                    && let Some(parameter) = function.params.items.first()
+                    && let BindingPatternKind::BindingIdentifier(identifier) =
+                        &parameter.pattern.kind
+                {
+                    validation.media_parameter =
+                        Some((identifier.name.to_string(), callback_name == MEDIA_PLAYBACK));
+                }
                 for statement in &function.body.as_ref().expect("checked body").statements {
                     validation.statement(statement, 0)?;
                 }
                 validation.playback_callback = false;
+                validation.media_parameter = None;
             }
             _ => unreachable!("module statements validated above"),
         }
     }
-    Ok(())
+    Ok(media)
 }
 
 struct Validation {
@@ -456,6 +482,7 @@ struct Validation {
     non_audio_names: BTreeSet<String>,
     declaring_builder: bool,
     playback_callback: bool,
+    media_parameter: Option<(String, bool)>,
 }
 
 fn literal_script_metadata(expression: &Expression<'_>, depth: usize) -> bool {
@@ -603,6 +630,7 @@ impl Validation {
                     | "thisScene"
                     | "thisLayer"
                     | "thisObject"
+                    | "MediaPlaybackEvent"
                     | "Vec3"
                     | "Math"
                     | "undefined"
@@ -766,6 +794,27 @@ impl Validation {
             return Err(blocked("dynamic prototype access is not supported"));
         }
         if let Expression::Identifier(identifier) = object {
+            if let Some((parameter, playback)) = &self.media_parameter {
+                let allowed = match identifier.name.as_str() {
+                    "MediaPlaybackEvent" if *playback => Some(matches!(
+                        property,
+                        "PLAYBACK_STOPPED" | "PLAYBACK_PLAYING" | "PLAYBACK_PAUSED"
+                    )),
+                    name if name == parameter => Some(if *playback {
+                        property == "state"
+                    } else {
+                        matches!(
+                            property,
+                            "title" | "artist" | "albumTitle" | "albumArtist" | "genres"
+                        )
+                    }),
+                    _ => None,
+                };
+                if let Some(allowed) = allowed {
+                    ensure!(allowed, blocked("unsupported media event field"));
+                    return Ok(());
+                }
+            }
             let allowed = match identifier.name.as_str() {
                 "engine" => Some(matches!(
                     property,
@@ -893,6 +942,16 @@ impl Validation {
                 }
             }
             AssignmentTarget::StaticMemberExpression(member) if !member.optional => {
+                if let Expression::Identifier(identifier) = &member.object {
+                    ensure!(
+                        identifier.name != "MediaPlaybackEvent"
+                            && self
+                                .media_parameter
+                                .as_ref()
+                                .is_none_or(|(name, _)| name != identifier.name.as_str()),
+                        blocked("media event members are immutable")
+                    );
+                }
                 self.member(&member.object, member.property.name.as_str(), depth)
             }
             AssignmentTarget::ComputedMemberExpression(_) => Err(blocked(
@@ -1315,6 +1374,9 @@ const HOST: &str = r#"
         playRequested = true;
     }});
     Object.defineProperty(globalThis, 'thisObject', {value: Object.freeze({getAnimation: () => animation})});
+    Object.defineProperty(globalThis, 'MediaPlaybackEvent', {value: Object.freeze({
+        PLAYBACK_STOPPED:0, PLAYBACK_PLAYING:1, PLAYBACK_PAUSED:2
+    })});
     return Object.freeze({
         load: values => { for (const state of values) makeLayer(state); },
         owner: (handle, playable) => {
@@ -1325,6 +1387,7 @@ const HOST: &str = r#"
             playRequested = false;
         },
         playRequested: () => playRequested,
+        mediaEvent: value => Object.freeze(value),
         initialize: value => { initializing = value; },
         configure: values => { scriptOverrides=values; builderFinished=false; },
         register: value => { registration = value; },
@@ -1375,6 +1438,13 @@ struct Vm {
     timeline_starts: Vec<Option<f64>>,
     base_handles: BTreeSet<usize>,
     last_time: f64,
+    last_media: Option<MediaSnapshot>,
+}
+
+fn play(track: &PropertyTimeline, start: &mut Option<f64>, time: f64) {
+    if start.is_none_or(|start| track.clock.finished(time - start)) {
+        *start = Some(time);
+    }
 }
 
 impl Vm {
@@ -1503,6 +1573,7 @@ impl Vm {
                 timeline_starts,
                 base_handles,
                 last_time: 0.0,
+                last_media: None,
             },
             initialization,
         ))
@@ -1523,22 +1594,86 @@ impl Vm {
         time: f64,
         audio: super::spectrum::SpectrumSnapshot,
     ) -> Result<Vec<LayerState>> {
+        self.frame_with_media(time, audio, None)
+    }
+
+    fn frame_with_media(
+        &mut self,
+        time: f64,
+        audio: super::spectrum::SpectrumSnapshot,
+        media: Option<MediaSnapshot>,
+    ) -> Result<Vec<LayerState>> {
         ensure!(
             time.is_finite() && time >= self.last_time,
             "Invalid or decreasing dynamic frame time"
         );
-        let delta = time - self.last_time;
+        let previous_time = self.last_time;
+        let delta = time - previous_time;
         self.last_time = time;
         self.deadline.set(Instant::now() + FRAME_LIMIT);
         self.context.with(|ctx| -> Result<_> {
             let host = self.host.clone().restore(&ctx)?;
             let frame: Function = host.get("frame")?;
             let values=serde_json::json!({"left":audio.left.to_vec(),"right":audio.right.to_vec(),"script_left":audio.script_left.to_vec(),"script_right":audio.script_right.to_vec(),"script_average":audio.script_average.to_vec()});
-            frame.call::<_, ()>((time,delta,ctx.json_parse(serde_json::to_vec(&values)?)?))?;
             let owner: Function = host.get("owner")?;
             let play_requested: Function = host.get("playRequested")?;
             let input: Function = host.get("input")?;
             let output: Function = host.get("output")?;
+            if let Some(media) = media {
+                let old = self.last_media.as_ref();
+                let playback_changed = old.is_none_or(|old| {
+                    old.playback != media.playback || old.player != media.player
+                });
+                let properties_changed = old.is_some_and(|old| {
+                    old.player != media.player
+                        || old.track_id != media.track_id
+                        || old.title != media.title
+                        || old.artist != media.artist
+                        || old.album_title != media.album_title
+                        || old.album_artist != media.album_artist
+                        || old.genres != media.genres
+                }) || (old.is_none() && media.player.is_some());
+                let freeze: Function = host.get("mediaEvent")?;
+                for (name, payload) in [
+                    (
+                        MEDIA_PLAYBACK,
+                        playback_changed.then(|| serde_json::json!({"state": match media.playback {
+                            Playback::Stopped => 0, Playback::Playing => 1, Playback::Paused => 2,
+                        }})),
+                    ),
+                    (
+                        MEDIA_PROPERTIES,
+                        properties_changed.then(|| serde_json::json!({
+                            "title":media.title,"artist":media.artist,"albumTitle":media.album_title,
+                            "albumArtist":media.album_artist,"genres":media.genres,
+                        })),
+                    ),
+                ] {
+                    let Some(payload) = payload else { continue; };
+                    let payload = freeze.call::<_, rquickjs::Value>((
+                        ctx.json_parse(serde_json::to_vec(&payload)?)?,
+                    ))?;
+                    for (index, (module, binding)) in self.modules.iter().zip(&self.bindings).enumerate() {
+                        let module = module.clone().restore(&ctx)?;
+                        let callback: rquickjs::Value = module.get(name)?;
+                        if let Some(callback) = callback.as_function() {
+                            let clock_owner = self.timeline_owners[index];
+                            owner.call::<_, ()>((binding.layer, clock_owner.is_some()))?;
+                            callback.call::<_, ()>((payload.clone(),))
+                                .map_err(|_| blocked("dynamic media callback failed or exceeded its limits"))?;
+                            if clock_owner == Some(index)
+                                && play_requested.call::<_, bool>(())?
+                            {
+                                let track = binding.timeline.as_ref().expect("validated owner");
+                                // Native media dispatch precedes clock advance.
+                                play(track, &mut self.timeline_starts[index], previous_time);
+                            }
+                        }
+                    }
+                }
+                self.last_media = Some(media);
+            }
+            frame.call::<_, ()>((time,delta,ctx.json_parse(serde_json::to_vec(&values)?)?))?;
             // The authored timeline pass precedes every SceneScript update,
             // including callbacks on other properties of the same layer.
             let timeline_vector: Function = host.get("timelineVector")?;
@@ -1566,7 +1701,10 @@ impl Vm {
             {
                 owner.call::<_, ()>((binding.layer, clock_owner.is_some()))?;
                 let module = module.clone().restore(&ctx)?;
-                let update: Function = module.get("update")?;
+                let update: rquickjs::Value = module.get("update")?;
+                let Some(update) = update.as_function() else {
+                    continue;
+                };
                 let current =
                     input.call::<_, rquickjs::Value>((binding.layer, binding.property.as_str()))?;
                 let value: rquickjs::Value = update
@@ -1580,11 +1718,8 @@ impl Vm {
                 if *clock_owner == Some(index)
                     && play_requested.call::<_, bool>(())?
                 {
-                    let start = &mut self.timeline_starts[index];
                     let track = binding.timeline.as_ref().expect("validated owner");
-                    if start.is_none_or(|start| track.clock.finished(time - start)) {
-                        *start = Some(time);
-                    }
+                    play(track, &mut self.timeline_starts[index], time);
                 }
             }
             let snapshot = read_snapshot(&host, &self.base_handles)?;
@@ -1856,12 +1991,31 @@ fn worker_run(
             "dynamic initialization differs from the prepared resource plan",
         ));
     }
-    let initial = vm.frame(0.0, [0.0; 64])?;
-    if initial != plan.initial {
-        return Err(blocked(
-            "dynamic initial frame differs from its prepared snapshot",
-        ));
-    }
+    let media_feed = plan.media.then(MediaFeed::acquire).transpose()?;
+    let initial = if let Some(feed) = &media_feed {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let snapshot = loop {
+            if stop.load(Ordering::Acquire) {
+                return Ok(());
+            }
+            if let Some(snapshot) = feed.latest()? {
+                break snapshot;
+            }
+            ensure!(
+                Instant::now() < deadline,
+                blocked("media input did not become ready")
+            );
+            thread::park_timeout(Duration::from_millis(10));
+        };
+        vm.frame_with_media(0.0, Default::default(), Some(snapshot))?
+    } else {
+        let initial = vm.frame(0.0, [0.0; 64])?;
+        ensure!(
+            initial == plan.initial,
+            blocked("dynamic initial frame differs from its prepared snapshot")
+        );
+        initial
+    };
     let mut ready = mailbox
         .lock()
         .map_err(|_| blocked("dynamic script mailbox is unavailable"))?;
@@ -1883,7 +2037,12 @@ fn worker_run(
             .input
             .take();
         if let Some(input) = input {
-            let states = vm.frame_with_audio(input.time, input.audio)?;
+            let media = media_feed
+                .as_ref()
+                .map(MediaFeed::latest)
+                .transpose()?
+                .flatten();
+            let states = vm.frame_with_media(input.time, input.audio, media)?;
             let output = FrameOutput {
                 seq: input.seq,
                 time: input.time,
@@ -1970,6 +2129,117 @@ mod tests {
         let next = vm.frame(0.25, [0.; 64]).unwrap();
         assert!(next[0].visible);
         assert_eq!(next[0].alpha, 0.375);
+    }
+
+    #[test]
+    fn media_changes_dispatch_before_timeline_and_deduplicate() {
+        let mut author = super::super::tests::timeline_alpha();
+        author["animation"]["options"]["startpaused"] = Value::Bool(true);
+        let source = r#"
+            let changes=0;
+            export function mediaPlaybackChanged(event){
+                thisLayer.visible=event.state!==MediaPlaybackEvent.PLAYBACK_STOPPED;
+            }
+            export function mediaPropertiesChanged(event){
+                changes+=1;
+                thisLayer.origin=new Vec3(changes,0,0);
+                if(event.title==='Example'){thisObject.getAnimation().play();}
+            }
+        "#;
+        let plan = PreparedScripts::prepare(
+            vec![Binding {
+                layer: 7,
+                property: "alpha".to_owned(),
+                source: source.to_owned(),
+                input: author["value"].clone(),
+                script_properties: serde_json::json!({}),
+                timeline: Some(
+                    PropertyTimeline::parse(&author["animation"], "alpha", &author["value"])
+                        .unwrap(),
+                ),
+            }],
+            vec![layer()],
+            serde_json::json!({}),
+        )
+        .unwrap();
+        assert!(plan.media);
+        let (mut vm, _) = Vm::new(&plan, Arc::new(AtomicBool::new(false))).unwrap();
+        let stopped = MediaSnapshot::default();
+        let playing = MediaSnapshot {
+            player: Some("org.mpris.MediaPlayer2.lwe_test".to_owned()),
+            playback: Playback::Playing,
+            title: "Example".to_owned(),
+            ..Default::default()
+        };
+        let mut tick = |t, snapshot| {
+            vm.frame_with_media(t, Default::default(), Some(snapshot))
+                .unwrap()
+                .remove(0)
+        };
+        let initial = tick(0., stopped.clone());
+        assert!(!initial.visible);
+        assert_eq!(initial.alpha, 0.25);
+        let active = tick(0.25, playing.clone());
+        assert!(active.visible);
+        assert_eq!(active.alpha, 0.75);
+        assert_eq!(active.origin[0], 1.);
+        let unchanged = tick(0.5, playing);
+        assert_eq!(unchanged, active);
+        let clear = tick(0.75, stopped);
+        assert!(!clear.visible);
+        assert_eq!(clear.origin[0], 2.);
+    }
+
+    #[test]
+    fn media_callbacks_keep_unmodeled_fields_and_thumbnail_events_gated() {
+        for source in [
+            "export function mediaThumbnailChanged(event){}",
+            "export function mediaPropertiesChanged(event){return event.artUrl;}",
+            "export function mediaPlaybackChanged(event){event.state=0;}",
+        ] {
+            assert!(prepare(source).is_err());
+        }
+    }
+
+    #[test]
+    #[ignore = "requires the isolated dbus-run-session MPRIS fixture"]
+    fn private_bus_media_callbacks_reach_accepted_worker_frames() -> Result<()> {
+        ensure!(
+            std::env::var("LWE_TEST_PRIVATE_MPRIS").as_deref() == Ok("1"),
+            "Start the fixture on a private session bus"
+        );
+        let plan = prepare(
+            r#"
+            export function mediaPlaybackChanged(event){
+                thisLayer.visible=event.state===MediaPlaybackEvent.PLAYBACK_PLAYING;
+            }
+            export function mediaPropertiesChanged(event){
+                thisLayer.origin=new Vec3(event.title==='First fixture track'?1:event.title==='Second fixture track'?2:3,0,0);
+            }
+        "#,
+        )?;
+        let worker = ScriptWorker::spawn(&plan)?;
+        let first = wait_tagged(&worker);
+        assert_eq!(first.seq, 0);
+        assert!(first.states[0].visible);
+        assert_eq!(first.states[0].origin[0], 1.);
+        let mut paused = false;
+        for tick in 1..=180 {
+            thread::sleep(Duration::from_millis(20));
+            let states = wait_snapshot(&worker, f64::from(tick) * 0.02, [0.; 64]);
+            if states[0].origin[0] == 2. {
+                assert!(!states[0].visible);
+                paused = true;
+            }
+            if states[0].origin[0] == 3. {
+                assert!(!states[0].visible);
+                assert!(paused);
+                return Ok(());
+            }
+        }
+        Err(blocked(
+            "MPRIS fixture changes did not reach the script worker",
+        ))
     }
 
     #[test]

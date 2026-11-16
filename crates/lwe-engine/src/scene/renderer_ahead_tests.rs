@@ -181,6 +181,58 @@ fn ahead(renderer: &mut SceneRenderer, time: f64, timed: bool) -> Result<()> {
 
 #[test]
 #[ignore = "requires opt-in surfaceless EGL; no desktop backend"]
+fn immediate_centered_parallax_draws_shifted_geometry_and_shader_center() -> Result<()> {
+    use super::super::tests::Fixture;
+
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.0.join("scene.json"),
+        br#"{
+        "camera":{"eye":"0 0 0","center":"0 0 -1","up":"0 1 0"},
+        "general":{"orthogonalprojection":{"width":16,"height":16},"cameraparallax":true,
+            "cameraparallaxamount":0.5,"cameraparallaxdelay":0,"cameraparallaxmouseinfluence":0},
+        "objects":[{"image":"models/image.json","size":"4 4","origin":"12 4 0",
+            "effects":[{"file":"effects/shake.json"}]}]
+    }"#,
+    )?;
+    for directory in ["effects", "materials/effects", "shaders/effects"] {
+        std::fs::create_dir_all(fixture.0.join(directory))?;
+    }
+    for (path, source) in [
+        (
+            "effects/shake.json",
+            r#"{"passes":[{"material":"materials/effects/shake.json"}]}"#,
+        ),
+        (
+            "materials/effects/shake.json",
+            r#"{"passes":[{"shader":"effects/shake"}]}"#,
+        ),
+        (
+            "shaders/effects/shake.vert",
+            "uniform mat4 g_ModelViewProjectionMatrix;\nattribute vec3 a_Position;\nattribute vec2 a_TexCoord;\nvarying vec2 v_TexCoord;\nvoid main(){gl_Position=mul(vec4(a_Position,1),g_ModelViewProjectionMatrix);v_TexCoord=a_TexCoord;}",
+        ),
+        (
+            "shaders/effects/shake.frag",
+            "uniform sampler2D g_Texture0;\nuniform vec2 g_ParallaxPosition;\nvarying vec2 v_TexCoord;\nvoid main(){gl_FragColor=vec4(g_ParallaxPosition,0.0,texSample2D(g_Texture0,v_TexCoord).a);}",
+        ),
+    ] {
+        std::fs::write(fixture.0.join(path), source)?;
+    }
+    let scene = PreparedScene::prepare(&fixture.0, None)?;
+    let _context = super::sharing_tests::Offscreen::new()?;
+    let pool = TexturePool::new()?;
+    let mut renderer = SceneRenderer::initialize_shared(&scene, Rc::clone(&pool))?;
+    let pixels = draw(&mut renderer, 16, 0., false)?;
+    let pixels = pixels.as_chunks::<4>().0;
+    assert_eq!(pixels[2 * 16 + 15], [128, 128, 0, 255]);
+    assert_eq!(pixels[2 * 16 + 10], [0, 0, 0, 255]);
+    renderer.cleanup();
+    pool.drain_retired()?;
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires opt-in surfaceless EGL; no desktop backend"]
 fn linked_scale_and_alpha_replay_accepted_pixels_before_next_timeline_sample() -> Result<()> {
     use super::super::tests::{Fixture, timeline_alpha};
     use serde_json::json;

@@ -961,7 +961,7 @@ pub(crate) fn runtime_uniform_kind(name: &str) -> Option<&'static str> {
         }
         "g_Time" => Some("float"),
         "g_Color4" | "g_Texture0UVTransform" => Some("vec4"),
-        "g_TexelSize" | "g_PointerPosition" => Some("vec2"),
+        "g_TexelSize" | "g_PointerPosition" | "g_ParallaxPosition" => Some("vec2"),
         "g_AudioSpectrum16Left"
         | "g_AudioSpectrum16Right"
         | "g_AudioSpectrum32Left"
