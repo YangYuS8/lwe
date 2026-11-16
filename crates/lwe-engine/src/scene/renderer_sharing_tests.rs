@@ -140,6 +140,7 @@ pub(super) fn fixture(repeat: bool, rgba: Vec<u8>) -> PreparedScene {
             animation: None,
         }],
         layers: vec![PreparedLayer {
+            world_2d: None,
             clamp_uvs: false,
             crop_offset: [0.; 2],
             no_padding: false,
