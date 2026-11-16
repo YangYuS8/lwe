@@ -17,6 +17,7 @@ mod acceptance;
 #[path = "renderer_yakuza_acceptance.rs"]
 mod yakuza_acceptance;
 
+use super::prepared_source::StaticTextureStorage;
 use super::shared_texture::{ResourcePlan, SharedTexture, TextureKey, TexturePool, WorkKey};
 
 use super::{
@@ -747,6 +748,14 @@ impl GpuTexture {
             texture.image_height as i32,
             texture.source_flags,
         );
+        // Keep the RGBA input, its lease and the RGBA-equivalent GPU charge.
+        // Desktop GL retains the stored channels and supplies zero/one for
+        // the same absent channels that the native raw decoder expanded.
+        let internal_format = match texture.static_source.as_ref().map(|source| source.storage) {
+            Some(StaticTextureStorage::R8) => gl::R8,
+            Some(StaticTextureStorage::Rg8) => gl::RG8,
+            Some(StaticTextureStorage::Rgba8) | None => gl::RGBA8,
+        };
         // SAFETY: pixels contains width*height*4 bytes; unpack PBO is disabled.
         unsafe {
             gl::GenTextures(1, &mut result.id);
@@ -754,7 +763,7 @@ impl GpuTexture {
             gl::TexImage2D(
                 gl::TEXTURE_2D,
                 0,
-                gl::RGBA8 as i32,
+                internal_format as i32,
                 result.width,
                 result.height,
                 0,

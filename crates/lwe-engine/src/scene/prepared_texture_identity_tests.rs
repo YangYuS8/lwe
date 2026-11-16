@@ -505,3 +505,63 @@ fn encoded_image_decodes_actual_first_mip_but_identity_covers_unused_mips() {
         second.textures[0].static_source.as_ref().unwrap()
     ));
 }
+
+pub(super) fn prepare_storage_texture(
+    format: u32,
+    payload: &[u8],
+    compressed: bool,
+) -> PreparedTexture {
+    let fixture = Fixture::new();
+    let stored = if compressed {
+        lz4_flex::block::compress(payload)
+    } else {
+        payload.to_vec()
+    };
+    let mut bytes = b"TEXV0005\0TEXI0001\0".to_vec();
+    for value in [format, 0, 3, 2, 3, 2, 0] {
+        bytes.extend(value.to_le_bytes());
+    }
+    bytes.extend(b"TEXB0003\0");
+    for value in [
+        1,
+        u32::MAX,
+        1,
+        3,
+        2,
+        u32::from(compressed),
+        if compressed { payload.len() as u32 } else { 0 },
+        stored.len() as u32,
+    ] {
+        bytes.extend(value.to_le_bytes());
+    }
+    bytes.extend(stored);
+    fixture.write("materials/image.tex", &bytes);
+    fixture.prepare(None).textures.remove(0)
+}
+
+#[test]
+fn static_storage_uses_the_decoded_mip_kind_not_just_the_tex_format() {
+    use prepared_source::StaticTextureStorage::{R8, Rg8, Rgba8};
+    let png_texel = [70, 19, 177, 101];
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(3, 2, image::Rgba(png_texel))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    for compressed in [false, true] {
+        for (format, native, rgba, storage) in [
+            (9, &[70][..], [70, 0, 0, 255], R8),
+            (8, &[70, 19][..], [70, 19, 0, 255], Rg8),
+        ] {
+            let raw = prepare_storage_texture(format, &native.repeat(6), compressed);
+            assert_eq!(raw.static_source.as_ref().unwrap().storage, storage);
+            assert_eq!(raw.rgba(), rgba.repeat(6));
+            assert_eq!(raw.static_source.as_ref().unwrap().capacity_bytes(), 24);
+
+            // Real color and alpha must survive even with a raw-format header
+            // and the raw container sentinel (-1).
+            let encoded = prepare_storage_texture(format, png.get_ref(), compressed);
+            assert_eq!(encoded.static_source.as_ref().unwrap().storage, Rgba8);
+            assert_eq!(encoded.rgba(), png_texel.repeat(6));
+        }
+    }
+}

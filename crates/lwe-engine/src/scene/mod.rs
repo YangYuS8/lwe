@@ -863,8 +863,11 @@ impl Preparation<'_> {
                     None
                 };
                 let payload = raw.as_deref().unwrap_or(stored);
-                if payload.starts_with(b"\x89PNG\r\n\x1a\n") || payload.starts_with(b"\xff\xd8\xff")
-                {
+                // The decoder detects encoded images by their actual mip
+                // signature even when TEX metadata names a raw pixel format.
+                let encoded_image = payload.starts_with(b"\x89PNG\r\n\x1a\n")
+                    || payload.starts_with(b"\xff\xd8\xff");
+                if encoded_image {
                     reservation.resize(
                         scratch
                             .checked_add(
@@ -898,6 +901,7 @@ impl Preparation<'_> {
                     decoded,
                     fingerprint,
                     reservation,
+                    !encoded_image,
                 ));
                 prepared_source::put_static(cache_key, &owner);
                 owner
