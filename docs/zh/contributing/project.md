@@ -54,7 +54,7 @@ LWE 是一个 Linux 动态壁纸平台，服务于把实际 Wallpaper Engine 工
 
 `genericimage2` 图片路径接纳缺省 VERSION 的旧版 Brightness/Alpha 接口及显式 VERSION 1/2 Color4 接口，特效后保留 VERSION 2 的作者配置 0/30/31 模式合成。Fullscreen/passthrough、Scroll、Pulse 和有界的项目自带 pass 使用原始、项目优先的资源；完整画面 FBO 快照和命名目标保留各自输入。真实桌面输出 monitor 采集提供归一化的十六档立体声频谱 uniform，仅在分配持久保存与 Finalize 后激活。暂停/回滚渲染器在强制重绘时保留已显示画面的音频输入。这不证明 Windows FFT 分频一致或完整 SceneScript 音频 API 支持。
 
-活动相机路径、自动投影、倾斜/反向/非默认 up、动态相机运动、图层/模型 `parent` 绑定、不支持的组件/绑定形状、更广泛的 SceneScript/FFT API、HDR 及[使用指南](../guide/usage.md#实验性场景验证)中的其他限制仍阻断。Open Wallpaper Engine 源码仅作为行为参考，LWE 不执行其 C++ 运行时。原版噪声、子系统、rope 和完整画面的视觉 A/B 尚未完成。CPU 测试和构建不能证明实际可见播放；真实桌面验收分别记录样本、流程和环境。
+活动相机路径、自动投影、倾斜/反向/非默认 up、动态相机运动、模型 `parent` 绑定及静态二维子集以外的图层层级、不支持的组件/绑定形状、更广泛的 SceneScript/FFT API、HDR 及[使用指南](../guide/usage.md#实验性场景验证)中的其他限制仍阻断。Open Wallpaper Engine 源码仅作为行为参考，LWE 不执行其 C++ 运行时。原版噪声、子系统、rope 和完整画面的视觉 A/B 尚未完成。CPU 测试和构建不能证明实际可见播放；真实桌面验收分别记录样本、流程和环境。
 
 纯标量 SceneScript 保留准备 worker 上的 Oxc AST 校验和有界 QuickJS 执行。另一条有界 SceneScript worker 路径支持 `init`/`update`/`applyUserProperties`、有限 `Vec3` 与图片层状态，以及仅初始化期间的图片模型 `createLayer(path)`。全部作者对象先保留独立 handle，新层随后获得新 handle；创建资源经过共用准备，引擎只接收已验证快照，并等待快照后才 ACK 首帧。暂停重绘/回滚保留已接纳状态，取消、异常、执行超时、worker 失败和未知能力沿用可逆应用边界。源码/AST、绑定数、总层数、VM 内存/栈及回调时间均有有限上限。仅支持模块全局注册的 `registerAudioBuffers(64).average`：它是就地更新的 `Float32Array`，输入来自对桌面输出采样进行的真实 64 档变换，而非扩展十六档数据。Windows 分频、归一化和视觉 FFT 一致性尚未核验。导入、通用动态访问、时钟/随机 API、光标/媒体交互、其他通道/分辨率及更广宿主 API 仍阻断，`3420277613` 仍需更广脚本与资源。Yakuza 八组背景/音频条 CPU 组合、五组完整 GPU 用例和真实原生 UI 事务已通过，真实私有输出 monitor 经 64 档 FFT、原始脚本至离屏音频条 GPU 的链路也通过，与可见原生 UI 分别验证，不证明用户当前音乐/视频路由，详见[开发记录](./guide.md#yakuza-扩展-2026-10-12)。
 
