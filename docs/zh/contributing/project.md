@@ -48,7 +48,7 @@ LWE 是一个 Linux 动态壁纸平台，服务于把实际 Wallpaper Engine 工
 
 实验性场景路径由 Rust 独立实现，不依赖 Open Wallpaper Engine 运行时。该路径共用 `PreparedScene::prepare` 进行兼容评估和应用前验证。准备阶段在运行时线程之外读取文件和解码纹理；引擎负责 GL 初始化、呈现确认和清理。缓存的兼容评估仅保留摘要，不能代替应用前验证。未知特性一律阻断播放。
 
-当前渲染器接纳显式固定正交尺寸的 2D 图片层、有界 sprite/rope 粒子及子发射器、包含 Shake、Shine、WaterRipple、Iris 的受支持材质/特效 pass、四 pass LDR 泛光，以及单条 FLAC 循环图层。粒子可保留单图片 `TEXS0002` 图集帧，进行序列/随机帧选择与序列帧插值；有界平面湍流、透明度/尺寸振荡和角运动共用有限准备、模拟、几何预算与 SceneClock。原版噪声/随机行为一致性尚未验证。保存相机的 eye/center X/Y 相等、朝向负 Z、up 为默认时，按原版静态加载分支观察结果规范化，保存的 X/Y 不必为零。精确 `user`/`value` 绑定在类型/范围或选项成员校验后解析 bool/slider/color/combo；combo 条件相等可产生可见性，未知条件及无效默认/覆盖值严格阻断。项目/输出选择在准备前验证，与分配一起原子保存至同一 session。此前在记录的单输出机器上通过的原生 bool/slider 编辑、保存失败回滚/重试、新进程恢复和完整重置，本轮新增 Yakuza combo/颜色编辑、保存失败/重试、重启和重置流程已另行通过原生验收。
+当前渲染器接纳显式固定正交尺寸的 2D 图片层、有界 sprite/rope 粒子及子发射器、包含 Shake、Shine、WaterRipple、Iris 的受支持材质/特效 pass、四 pass LDR 泛光，以及单条 FLAC 或 MPEG-1 Layer III MP3 循环图层。粒子可保留单图片 `TEXS0002` 图集帧，进行序列/随机帧选择与序列帧插值；有界平面湍流、透明度/尺寸振荡和角运动共用有限准备、模拟、几何预算与 SceneClock。原版噪声/随机行为一致性尚未验证。保存相机的 eye/center X/Y 相等、朝向负 Z、up 为默认时，按原版静态加载分支观察结果规范化，保存的 X/Y 不必为零。精确 `user`/`value` 绑定在类型/范围或选项成员校验后解析 bool/slider/color/combo；直接图层显隐绑定到缺失的普通控件时保留作者声明的布尔值。combo 条件相等可产生可见性，未知条件及无效默认/覆盖值严格阻断。项目/输出选择在准备前验证，与分配一起原子保存至同一 session。此前在记录的单输出机器上通过的原生 bool/slider 编辑、保存失败回滚/重试、新进程恢复和完整重置，本轮新增 Yakuza combo/颜色编辑、保存失败/重试、重启和重置流程已另行通过原生验收。
 
 旧式静态图片分支在运行时适配本机或项目自带 GLSL，接受 `genericimage`、双纹理和四纹理两种 `flowimage`、`swayimage` 与 `flag`。对象省略尺寸时使用模型 `width`/`height`，保留项目资源优先级、作者自上而下的 UV 数学、图片/存储 padding、受支持的重复/边缘限制纹理标志与 SceneClock 动画。旗帜法线解码按实际绑定的源纹理格式派生 combo。声明式 `usershadervalues` 把经验证的 bool/slider/color 选择从项目属性映射到材质 uniform；当前 LWE 的用户映射优先于显式材质常量，原程序发生冲突时的精确优先级仍未核实。未知着色器、shader 编译期 combo、运行时依赖、采样标志和映射目标继续阻断。
 

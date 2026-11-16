@@ -250,6 +250,20 @@ LWE supports these behaviors for scripted image and planar text properties withi
 
 All seven Disbelief Y tracks passed preparation in four isolated fixtures with the original timeline descriptors and pass-through updates. The complete package advances to an undeclared user property binding. The 15 originals still yield six preparations and nine rejections. All 72 hardware-offscreen frames and logical GPU charges match at 1920×1080. The linked fixture preserves both accepted scale and alpha during frozen resize and rollback replay, then advances both on resume. Physical suspend was skipped.
 
+### Authored visibility with an absent user property
+
+The installed player writes the authored visibility before registering property and script bindings. It updates user-bound values from the effective property map. An absent key leaves the authored visibility available to the script. LWE applies this behavior to direct Scene layer visibility with a boolean value and an ordinary ASCII user control name. System names such as the media thumbnail keep their existing checks. Declared controls still use their typed values. Conditional controls, nested resource bindings, overrides and unrelated property targets retain their existing validation.
+
+Disbelief Y declares camera parallax with nonzero strength and no explicit layer depth. The installed player initializes omitted layer depth to `[1, 1]`. Its cursor-dependent geometry and shader inputs remain gated while the cursor signal and complete rendering path are unverified.
+
+The installed player updates an indexed material texture for `$mediaThumbnail` and retains the prior image separately for `$mediaPreviousThumbnail`. The callback carries thumbnail availability and palette values. The image itself is supplied by the texture path. Both paths remain gated in LWE.
+
+### Single-file MP3 loops
+
+The Scene audio path supports MPEG-1 Layer III single-file loops. Preparation checks the encoded frames in the sealed clip, and the existing audio player selects the MP3 demuxer for that format. The authored `muteineditor` boolean is editor metadata. Sound count, byte and duration limits and the reversible playback path stay the same. Spatial sound and other playback modes remain gated.
+
+The 15 original packages retained six admitted and nine rejected results, and only Disbelief Y's first diagnostic changed to camera parallax. Both of its visibility inputs passed in isolated fixtures and still require media support for the original callbacks. Two original MP3 clips passed muted playback with a null output. The six admitted scenes matched all 72 prior hardware-offscreen frames and logical GPU charges at 1920×1080. Physical suspend was skipped.
+
 ### Work sequence and exit criteria
 
 The table retains full future acceptance targets; its physical suspend/resume target is explicitly deferred from the current batch. Bounded P0 inventory, the first P1 runtime/settings slices, restricted P2 camera and editable-property persistence, and the default mixed-project CPU/GPU path are implemented. Default and property-editor native UI flows, including real save failure/retry and a twelve-second owned fullscreen recovery, passed; broader lifecycle acceptance remains open. No complete stage or daily-use milestone is marked finished. Unsupported behaviors remain gated, and implemented paths still require their stated acceptance.
