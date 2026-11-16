@@ -226,6 +226,14 @@ Supported SceneScript bindings can update the local transform or visibility of a
 
 All 15 fixed originals retained their preparation outcomes and first rejection reasons. The six runnable originals matched 72 earlier offscreen RGBA frame hashes at 1920×1080 with their authored canvases and default properties. Their logical GPU charges matched as well. The four originals with authored hierarchy still have independent blockers. New hierarchy behavior was tested with authored fixtures on the CPU and offscreen with the SceneScript worker. A combined timed-atlas and history fixture kept the accepted pose, texture frame and history during replay after freezing, then advanced the texture and pose together after resume.
 
+### Text controls and script options
+
+The installed Wallpaper Engine editor binds `textinput` to a string value. LWE accepts bounded text only as the direct content of a Scene text layer. Author `text` declarations at the property-list level are plain read-only labels. The existing save, rollback and per-monitor state paths handle editable text including an explicit empty value.
+
+The shipped `createScriptProperties` implementation uses the supplied default for `addText` and the first option for `addCombo`. LWE supports literal declarations and typed overrides for these two methods in the bounded worker. Combo overrides must match one of the declared string keys. Broader APIs and mixed timeline/script wrappers keep their existing gates. An offscreen fixture using the installed font matched literal authored text for the default, an override and a clear, with both builder methods on the same layer.
+
+The 15 original projects still yield six preparations and nine rejections. `3232289987` now reaches a separate oversized editable property name. `3718622170` passes the earlier string override rejection and reaches an unsupported script expression. Disbelief Y (`3407827570`) still has mixed timeline and script bindings and independent media, text-layout and layer-count requirements. These results leave the original hierarchy projects outside current runtime coverage.
+
 ### Work sequence and exit criteria
 
 The table retains full future acceptance targets; its physical suspend/resume target is explicitly deferred from the current batch. Bounded P0 inventory, the first P1 runtime/settings slices, restricted P2 camera and editable-property persistence, and the default mixed-project CPU/GPU path are implemented. Default and property-editor native UI flows, including real save failure/retry and a twelve-second owned fullscreen recovery, passed; broader lifecycle acceptance remains open. No complete stage or daily-use milestone is marked finished. Unsupported behaviors remain gated, and implemented paths still require their stated acceptance.

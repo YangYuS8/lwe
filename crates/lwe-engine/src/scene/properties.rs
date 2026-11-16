@@ -19,7 +19,8 @@ const MAX_NODES: usize = 100_000;
 const MAX_DEPTH: usize = 64;
 const MAX_LABEL_BYTES: usize = 4096;
 const MAX_COMBO_OPTIONS: usize = 256;
-const MAX_COMBO_VALUE_BYTES: usize = 256;
+const MAX_PROPERTY_STRING_BYTES: usize = 256;
+const MAX_DISPLAY_NAME_BYTES: usize = 512;
 const MAX_SCRIPTS: usize = 64;
 const MAX_SCRIPT_BYTES: usize = 256 * 1024;
 
@@ -31,6 +32,8 @@ pub enum PropertyKind {
     Slider,
     Color,
     Combo,
+    TextInput,
+    TextDisplay,
     Texture,
 }
 
@@ -42,6 +45,8 @@ pub enum PropertyValue {
     Slider(f64),
     Color([f32; 3]),
     Combo(String),
+    TextInput(String),
+    TextDisplay,
     Texture(Option<String>),
 }
 
@@ -115,17 +120,19 @@ fn property_layout(project: &Value) -> Result<(Vec<PropertyDefinition>, Vec<Prop
     };
     let mut entries = Vec::with_capacity(declarations.len());
     for (name, declaration) in declarations {
-        if name.is_empty() || name.len() > 256 {
+        let display = declaration["type"] == "text";
+        let name_limit = if display { MAX_DISPLAY_NAME_BYTES } else { 256 };
+        if name.is_empty() || name.len() > name_limit || (display && name.contains('\0')) {
             return Err(invalid("invalid project property name"));
         }
-        let control = if declaration["type"] == "group" {
+        let control = if display || declaration["type"] == "group" {
             None
         } else {
             Some(validated_declaration(declaration)?)
         };
         let object = match &control {
             Some(control) => control.object,
-            None => validated_group(declaration)?,
+            None => validated_metadata(declaration)?,
         };
         let label = object
             .get("text")
@@ -137,6 +144,20 @@ fn property_layout(project: &Value) -> Result<(Vec<PropertyDefinition>, Vec<Prop
             .transpose()?
             .unwrap_or(name);
         let order = object.get("order").map(scalar).transpose()?;
+        if display {
+            entries.push(PropertyEntry::Control(PropertyDefinition {
+                name: name.clone(),
+                label: label.to_owned(),
+                kind: PropertyKind::TextDisplay,
+                value: PropertyValue::TextDisplay,
+                min: None,
+                max: None,
+                step: None,
+                order,
+                options: Vec::new(),
+            }));
+            continue;
+        }
         let Some(declaration) = control else {
             entries.push(PropertyEntry::Group(PropertyGroup {
                 name: name.clone(),
@@ -181,19 +202,21 @@ fn property_layout(project: &Value) -> Result<(Vec<PropertyDefinition>, Vec<Prop
     Ok((definitions, groups))
 }
 
-fn validated_group(declaration: &Value) -> Result<&Map<String, Value>> {
+fn validated_metadata(declaration: &Value) -> Result<&Map<String, Value>> {
     let object = declaration
         .as_object()
-        .ok_or_else(|| invalid("invalid project property group"))?;
+        .ok_or_else(|| invalid("invalid project display metadata"))?;
     if object
         .keys()
         .any(|key| !matches!(key.as_str(), "type" | "text" | "order" | "index" | "value"))
     {
-        return Err(invalid("unsupported project property group metadata"));
+        return Err(invalid("unsupported project property display metadata"));
     }
-    // Native groups may carry an empty placeholder, but it is not a value.
+    // The shipped group and text metadata may carry an empty placeholder.
     if object.get("value").is_some_and(|value| value != "") {
-        return Err(invalid("project property groups cannot declare values"));
+        return Err(invalid(
+            "project property display metadata cannot declare values",
+        ));
     }
     if object
         .get("index")
@@ -236,6 +259,9 @@ pub fn apply_property_overrides(
             .iter()
             .find(|definition| definition.name == *name)
             .ok_or_else(|| invalid("property override has no project declaration"))?;
+        if definition.kind == PropertyKind::TextDisplay {
+            return Err(invalid("property text metadata cannot be overridden"));
+        }
         if definition.kind == PropertyKind::Texture {
             return Err(invalid(
                 "resource properties require a validated image capability",
@@ -317,7 +343,34 @@ impl<'a> ProjectProperties<'a> {
 
     pub(super) fn resolve_document(&self, document: &mut Value) -> Result<()> {
         validate_document(document, 0, &self.remaining_nodes, Some(self))?;
-        self.resolve(document)
+        self.resolve(document, false)
+    }
+
+    pub(super) fn resolve_scene_document(&self, document: &mut Value) -> Result<()> {
+        validate_document(document, 0, &self.remaining_nodes, Some(self))?;
+        // Only the direct content of a Scene text object can consume user text.
+        // Resolve this slot before the general resource/property traversal.
+        if let Some(objects) = document.get_mut("objects").and_then(Value::as_array_mut) {
+            for object in objects {
+                if ["image", "particle", "sound", "model"]
+                    .iter()
+                    .any(|key| object.get(key).is_some())
+                {
+                    continue;
+                }
+                let Some(text) = object.get_mut("text") else {
+                    continue;
+                };
+                let name = text.get("user").and_then(Value::as_str);
+                if name
+                    .and_then(|name| self.declarations?.get(name))
+                    .is_some_and(|declaration| declaration["type"] == "textinput")
+                {
+                    self.resolve(text, true)?;
+                }
+            }
+        }
+        self.resolve(document, false)
     }
 
     pub(super) fn shader_value(&self, name: &str) -> Result<Value> {
@@ -333,13 +386,16 @@ impl<'a> ProjectProperties<'a> {
             PropertyValue::Bool(value) => Value::from(u8::from(value)),
             PropertyValue::Slider(value) => Value::from(value),
             PropertyValue::Color(value) => serde_json::to_value(value)?,
-            PropertyValue::Combo(_) | PropertyValue::Texture(_) => {
-                return Err(invalid("combo properties cannot be used as shader values"));
+            PropertyValue::Combo(_)
+            | PropertyValue::TextInput(_)
+            | PropertyValue::TextDisplay
+            | PropertyValue::Texture(_) => {
+                return Err(invalid("property cannot be used as a shader value"));
             }
         })
     }
 
-    fn resolve(&self, value: &mut Value) -> Result<()> {
+    fn resolve(&self, value: &mut Value, text_content: bool) -> Result<()> {
         match value {
             Value::Object(object) => {
                 if let Some(source) = object.get("script").and_then(Value::as_str) {
@@ -389,17 +445,17 @@ impl<'a> ProjectProperties<'a> {
                         )?;
                         Value::Bool(declaration.default == condition)
                     } else {
-                        default_value(declaration, fallback)?
+                        default_value(declaration, fallback, text_content)?
                     };
                 } else {
                     for child in object.values_mut() {
-                        self.resolve(child)?;
+                        self.resolve(child, false)?;
                     }
                 }
             }
             Value::Array(array) => {
                 for child in array {
-                    self.resolve(child)?;
+                    self.resolve(child, false)?;
                 }
             }
             _ => {}
@@ -444,8 +500,8 @@ impl<'a> ProjectProperties<'a> {
         let mut snapshot = script::PropertySnapshot::new();
         if let Some(declarations) = self.declarations {
             for (name, declaration) in declarations {
-                if declaration["type"] == "group" {
-                    validated_group(declaration)?;
+                if matches!(declaration["type"].as_str(), Some("group" | "text")) {
+                    validated_metadata(declaration)?;
                     continue;
                 }
                 match validated_declaration(declaration)?.value {
@@ -459,6 +515,8 @@ impl<'a> ProjectProperties<'a> {
                     // and remains outside this scalar subset.
                     PropertyValue::Color(_)
                     | PropertyValue::Combo(_)
+                    | PropertyValue::TextInput(_)
+                    | PropertyValue::TextDisplay
                     | PropertyValue::Texture(_) => {}
                 }
             }
@@ -582,8 +640,13 @@ fn validated_declaration(declaration: &Value) -> Result<ValidatedDeclaration<'_>
     let object = declaration
         .as_object()
         .ok_or_else(|| invalid("invalid project property declaration"))?;
-    if object.get("type").and_then(Value::as_str) == Some("group") {
-        return Err(invalid("property group metadata cannot be used as a value"));
+    if matches!(
+        object.get("type").and_then(Value::as_str),
+        Some("group" | "text")
+    ) {
+        return Err(invalid(
+            "property display metadata cannot be used as a value",
+        ));
     }
     if object.keys().any(|key| {
         matches!(
@@ -603,6 +666,7 @@ fn validated_declaration(declaration: &Value) -> Result<ValidatedDeclaration<'_>
         Some("slider") => PropertyKind::Slider,
         Some("color") => PropertyKind::Color,
         Some("combo") => PropertyKind::Combo,
+        Some("textinput") => PropertyKind::TextInput,
         Some("scenetexture") => PropertyKind::Texture,
         _ => return Err(invalid("user property type is not in the validated subset")),
     };
@@ -676,6 +740,16 @@ fn validated_value(
             }
             Ok(PropertyValue::Combo(value.to_owned()))
         }
+        PropertyKind::TextInput => value
+            .as_str()
+            .filter(|text| {
+                text.len() <= MAX_PROPERTY_STRING_BYTES
+                    && text.split('\n').count() <= 8
+                    && text.chars().all(|c| c == '\n' || !c.is_control())
+            })
+            .map(|text| PropertyValue::TextInput(text.to_owned()))
+            .ok_or_else(|| invalid("text property requires bounded plain text")),
+        PropertyKind::TextDisplay => Err(invalid("property text metadata has no value")),
         PropertyKind::Texture => {
             if value != "" {
                 return Err(invalid(
@@ -687,13 +761,18 @@ fn validated_value(
     }
 }
 
-fn default_value(declaration: &Value, fallback: &Value) -> Result<Value> {
+fn default_value(declaration: &Value, fallback: &Value, text_content: bool) -> Result<Value> {
     // Project and document were already scanned once under the shared budget.
     // Do not rescan declaration metadata for every use of the same property.
     let declaration = validated_declaration(declaration)?;
     if declaration.kind == PropertyKind::Texture {
         return Err(invalid(
             "resource properties cannot be used as scalar values",
+        ));
+    }
+    if declaration.kind == PropertyKind::TextInput && !text_content {
+        return Err(invalid(
+            "text properties require a Scene text content binding",
         ));
     }
     // A binding's fallback is not used when a declaration exists. Validate its
@@ -713,7 +792,7 @@ fn combo_value(value: &Value) -> Result<&str> {
     value
         .as_str()
         .filter(|value| {
-            !value.is_empty() && value.len() <= MAX_COMBO_VALUE_BYTES && !value.contains('\0')
+            !value.is_empty() && value.len() <= MAX_PROPERTY_STRING_BYTES && !value.contains('\0')
         })
         .ok_or_else(|| invalid("combo property requires a bounded nonempty string"))
 }
@@ -1013,7 +1092,7 @@ mod tests {
     #[test]
     fn group_support_does_not_admit_other_native_control_kinds() {
         let mut project = grouped_project();
-        for kind in ["textinput", "usershortcut", "unknown"] {
+        for kind in ["usershortcut", "unknown"] {
             project["general"]["properties"]["custombackground"] =
                 json!({"type":kind,"value":"","order":106});
             assert_eq!(
@@ -1108,7 +1187,7 @@ mod tests {
             json!(0),
             json!(""),
             json!("first\0"),
-            json!("x".repeat(MAX_COMBO_VALUE_BYTES + 1)),
+            json!("x".repeat(MAX_PROPERTY_STRING_BYTES + 1)),
         ] {
             let mut project = original.clone();
             assert!(
@@ -1278,7 +1357,7 @@ mod tests {
             json!({"type":"bool","value":true,"binding":"expression"}),
             json!({"type":"bool","value":true,"Expression":"expression"}),
             json!({"type":"bool","value":true,"expr":"expression"}),
-            json!({"type":"textinput","value":"unsupported"}),
+            json!({"type":"textinput","value":false}),
             json!({"type":"slider","value":2,"min":0,"max":1}),
             json!({"type":"bool","value":1}),
             json!({"type":"color","value":"NaN 0 0"}),
@@ -1547,5 +1626,105 @@ mod tests {
         assert_eq!(unsupported_feature_code(&error), Some("property_binding"));
         assert_eq!(properties.remaining_nodes.get(), 0);
         assert!(properties.resolve_document(&mut Value::Null).is_err());
+    }
+}
+
+#[cfg(test)]
+mod text_controls_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn display_text_keeps_order_and_has_no_property_value() {
+        let display = "a".repeat(314);
+        let label = "<img src='https://example.invalid/text'>".to_owned();
+        let mut project = json!({"general":{"properties":{
+            "panel":{"type":"group","text":"Text","order":1},
+            (display.clone()):{"type":"text","text": label,"value":"","index":3,"order":2},
+            "caption":{"type":"textinput","value":"Default","order":3}
+        }}});
+        let definitions = property_definitions(&project).unwrap();
+        let groups = property_groups(&project).unwrap();
+        assert_eq!(definitions[0].name, display);
+        assert_eq!(definitions[0].kind, PropertyKind::TextDisplay);
+        assert_eq!(definitions[0].label, label);
+        assert_eq!(
+            serde_json::to_value(&definitions[0]).unwrap()["value"],
+            Value::Null
+        );
+        assert_eq!(groups[0].members, [display.as_str(), "caption"]);
+
+        let original = project.clone();
+        assert!(
+            apply_property_overrides(
+                &mut project,
+                &BTreeMap::from([
+                    ("caption".into(), json!("Changed")),
+                    (display.clone(), json!(""))
+                ])
+            )
+            .is_err()
+        );
+        assert_eq!(project, original);
+        project["general"]["properties"][&display]["value"] = json!("not metadata");
+        assert!(property_definitions(&project).is_err());
+        project["general"]["properties"][&display] = json!({"type":"bool","value":true});
+        assert!(property_definitions(&project).is_err());
+    }
+
+    #[test]
+    fn text_input_resolves_only_to_direct_scene_text_and_preserves_empty_overrides() {
+        let mut project = json!({"general":{"properties":{
+            "caption":{"type":"textinput","value":"初音\nMiku"}
+        }}});
+        let bindings = json!({"objects":[{"text":{"user":"caption","value":"Fallback"}}]});
+        let mut scene = bindings.clone();
+        let properties = ProjectProperties::from_project(&project).unwrap();
+        properties.resolve_scene_document(&mut scene).unwrap();
+        assert_eq!(scene["objects"][0]["text"], "初音\nMiku");
+        assert!(properties.shader_value("caption").is_err());
+        assert!(properties.resolve_document(&mut bindings.clone()).is_err());
+        for mut invalid in [
+            json!({"objects":[{"image":{"user":"caption","value":"models/item.json"}}]}),
+            json!({"objects":[{"text":"Literal","font":{"user":"caption","value":"fonts/Test.otf"}}]}),
+            json!({"objects":[{"text":{"user":"caption","value":5}}]}),
+            json!({"objects":[{"text":{"user":{"name":"caption","condition":"x"},"value":true}}]}),
+        ] {
+            assert!(
+                ProjectProperties::from_project(&project)
+                    .unwrap()
+                    .resolve_scene_document(&mut invalid)
+                    .is_err()
+            );
+        }
+        drop(properties);
+        let original = project.clone();
+        for invalid in [
+            json!(false),
+            json!("\u{0000}"),
+            json!("\ttext"),
+            json!("A\n".repeat(8)),
+            json!("我".repeat(86)),
+        ] {
+            assert!(
+                apply_property_overrides(
+                    &mut project,
+                    &BTreeMap::from([("caption".into(), invalid)])
+                )
+                .is_err()
+            );
+            assert_eq!(project, original);
+        }
+        apply_property_overrides(
+            &mut project,
+            &BTreeMap::from([("caption".into(), json!(""))]),
+        )
+        .unwrap();
+        let mut scene = bindings;
+        ProjectProperties::from_project(&project)
+            .unwrap()
+            .resolve_scene_document(&mut scene)
+            .unwrap();
+        assert_eq!(scene["objects"][0]["text"], "");
     }
 }

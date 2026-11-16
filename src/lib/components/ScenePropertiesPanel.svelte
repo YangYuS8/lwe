@@ -31,6 +31,7 @@
   const selectionKey = $derived(JSON.stringify([itemId, monitorId]));
   const panelCopy = $derived($copy.components.sceneProperties);
   const controlsDisabled = $derived(disabled || loading || saving || importing);
+  const hasEditableProperties = $derived(snapshot?.properties.some((property) => property.kind !== 'text_display') ?? false);
   const values = $derived(readDraft());
   const groupedNames = $derived(new Set(snapshot?.groups.flatMap((group) => group.members) ?? []));
   const ungrouped = $derived(snapshot?.properties.filter((property) => !groupedNames.has(property.name)) ?? []);
@@ -62,6 +63,10 @@
     !destroyed && requestToken === token && selectionKey === key;
   const finiteOrNull = (value: unknown) => value === null || (typeof value === 'number' && Number.isFinite(value));
   const isImageToken = (value: unknown): value is string => typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value);
+  const utf8 = new TextEncoder();
+  const isTextInput = (value: unknown): value is string => typeof value === 'string' &&
+    value.length <= 256 && utf8.encode(value).length <= 256 && value.split('\n').length <= 8 &&
+    !/[\p{Cc}\p{Cs}]/u.test(value.replaceAll('\n', ''));
   const isColor = (value: unknown): value is [number, number, number] =>
     Array.isArray(value) && value.length === 3 && value.every((channel) =>
       typeof channel === 'number' && Number.isFinite(channel) && channel >= 0 && channel <= 1);
@@ -83,6 +88,8 @@
       if (property.kind === 'bool') return typeof property.value === 'boolean';
       if (property.kind === 'color') return isColor(property.value);
       if (property.kind === 'texture') return property.value === null || isImageToken(property.value);
+      if (property.kind === 'text_display') return property.value === null;
+      if (property.kind === 'text_input') return isTextInput(property.value);
       if (property.kind === 'combo') {
         if (typeof property.value !== 'string' || !Array.isArray(property.options) ||
             property.options.length === 0 || property.options.length > 256) return false;
@@ -124,6 +131,7 @@
     if (!snapshot) return null;
     const entries: [string, ScenePropertyValue][] = [];
     for (const property of snapshot.properties) {
+      if (property.kind === 'text_display') continue;
       const value = draft[property.name];
       if (property.kind === 'bool') {
         if (typeof value !== 'boolean') return null;
@@ -137,6 +145,9 @@
       } else if (property.kind === 'texture') {
         if (value === null) continue;
         if (!isImageToken(value)) return null;
+        entries.push([property.name, value]);
+      } else if (property.kind === 'text_input') {
+        if (!isTextInput(value)) return null;
         entries.push([property.name, value]);
       } else {
         if (typeof value !== 'string' || !value.trim()) return null;
@@ -187,7 +198,7 @@
     if (!validSnapshot(result, currentItem, currentMonitor)) throw new Error(panelCopy.invalidSnapshot);
     groupExpanded = new Map(result.groups.map((group) => [group.name, groupExpanded.get(group.name) ?? true]));
     snapshot = result;
-    draft = Object.fromEntries(result.properties.map((property) => [property.name,
+    draft = Object.fromEntries(result.properties.filter((property) => property.kind !== 'text_display').map((property) => [property.name,
       property.kind === 'slider' ? String(property.value) : property.kind === 'color' ? [...property.value] : property.value
     ]));
   }
@@ -217,7 +228,7 @@
   }
 
   async function save(reset: boolean) {
-    if (controlsDisabled || (!reset && (!snapshot || !values))) return;
+    if (controlsDisabled || (snapshot && !hasEditableProperties) || (!reset && !values)) return;
     const submitted = reset ? {} : values!;
     const token = ++requestToken;
     const key = selectionKey;
@@ -244,7 +255,19 @@
 </script>
 
 {#snippet propertyControl(property: SceneProperty, inputId: string)}
-  {#if property.kind === 'bool'}
+  {#if property.kind === 'text_display'}
+    <p class="lwe-wrap-safe whitespace-pre-wrap text-sm">{property.label}</p>
+  {:else if property.kind === 'text_input'}
+    {@const valid = isTextInput(draft[property.name])}
+    <div class="grid min-w-0 gap-1.5 text-sm">
+      <label class="lwe-wrap-safe" for={inputId}>{property.label}</label>
+      <textarea id={inputId} value={draft[property.name] as string} disabled={controlsDisabled} rows={2}
+        aria-invalid={!valid} aria-describedby={valid ? undefined : `${inputId}-limit`}
+        oninput={(event) => edit(property.name, event.currentTarget.value)}
+        class="w-full min-w-0 resize-y rounded-md border border-input bg-background px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"></textarea>
+      {#if !valid}<p id={`${inputId}-limit`} class="text-muted-foreground">{panelCopy.textInputLimit}</p>{/if}
+    </div>
+  {:else if property.kind === 'bool'}
     <label class="flex min-w-0 items-start gap-2 text-sm" for={inputId}>
       <input id={inputId} type="checkbox" checked={draft[property.name] as boolean} disabled={controlsDisabled}
         onchange={(event) => edit(property.name, event.currentTarget.checked)}
@@ -302,7 +325,7 @@
       {#if loading}<p class="text-sm text-muted-foreground" role="status">{panelCopy.loading}</p>{/if}
       {#if importing}<p class="text-sm text-muted-foreground" role="status">{panelCopy.importingImage}</p>{/if}
       {#if snapshot}
-        {#if snapshot.properties.length === 0}
+        {#if !hasEditableProperties}
           <p class="text-sm text-muted-foreground">{panelCopy.empty}</p>
         {/if}
         {#if snapshot.properties.length > 0 || snapshot.groups.length > 0}
@@ -337,7 +360,7 @@
             {/each}
           </fieldset>
         {/if}
-        {#if snapshot.properties.length > 0}
+        {#if hasEditableProperties}
           {#if !values}<p class="lwe-warning-banner lwe-wrap-safe" role="alert">{panelCopy.invalidValues}</p>{/if}
           <div class="flex flex-wrap gap-2">
             <Button onclick={() => save(false)} disabled={controlsDisabled || !values}>{saving ? panelCopy.saving : panelCopy.save}</Button>

@@ -99,11 +99,11 @@ The frame-rate selection is an upper limit, not a guaranteed presentation rate. 
 
 ## Data and local state
 
-For a Scene that passes the resource gate, select a monitor in its Library detail panel and open **Scene properties**. Supported author controls include checkboxes, slider values edited in numeric fields, colors and combo selections. Slider limits and steps come from the project; combo values must remain among the author's declared options. Changing a background choice can select layers through supported bool/combo visibility bindings.
+For a Scene that passes the resource gate, select a monitor in its Library detail panel and open **Scene properties**. Supported author controls include checkboxes, slider values edited in numeric fields, colors, combo selections and text input bound to a supported text layer. Text accepts up to 256 UTF-8 bytes and eight lines. Saving an empty string clears the text, and resetting restores the author's default. Slider limits and steps come from the project, and combo values must remain among the author's declared options. Changing a background choice can select layers through supported bool/combo visibility bindings.
 
 Author groups collect following controls until the next group. Their sections can be expanded or collapsed with the mouse, Enter or Space; controls before the first group remain outside sections. Folding affects only the panel layout. Group headers are never submitted as wallpaper values, sent to scripts or stored in the session file, and fold state resets when the wallpaper or monitor selection changes.
 
-Edits remain a draft until **Save and apply** succeeds. The panel is available only for a locally assessed, playback-eligible Scene and a selected monitor. Group layout does not make an unsupported Scene playable. Image/video replacement, text input, option display-condition expressions and user shortcuts still require their respective resource/runtime paths; an input field alone would not establish support for them.
+Author display text appears as plain, read-only text. Edits remain a draft until **Save and apply** succeeds. The panel is available only for a locally assessed, playback-eligible Scene and a selected monitor. Group layout does not make an unsupported Scene playable. Option display-condition expressions, broader resource replacement and user shortcuts still have separate runtime requirements.
 
 LWE stores application state under the `lwe` configuration root used by the app. Scene choices are scoped to both wallpaper project and monitor in the same session file as assignments. Ordinary wallpaper replacement or clear retains those choices; resetting choices restores the project's defaults.
 

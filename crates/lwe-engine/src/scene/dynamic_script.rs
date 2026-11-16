@@ -141,7 +141,10 @@ impl PreparedScripts {
                 .ok_or_else(|| blocked("script properties must be a bounded object"))?;
             if overrides.len() > 32
                 || overrides.iter().any(|(name, value)| {
-                    !safe_name(name) || !(value.is_boolean() || value.as_f64().is_some_and(finite))
+                    !safe_name(name)
+                        || !(value.is_boolean()
+                            || value.as_f64().is_some_and(finite)
+                            || value.as_str().is_some_and(|text| text.len() <= 4096))
                 })
             {
                 return Err(blocked("invalid script property overrides"));
@@ -366,7 +369,13 @@ fn validate_source(source: &str, properties: BTreeSet<String>) -> Result<()> {
             }
             Statement::ExportNamedDeclaration(export) => {
                 if let Some(Declaration::VariableDeclaration(declaration)) = &export.declaration {
-                    validation.variable_expressions(declaration, 0)?;
+                    validation.declaring_builder = matches!(
+                        &declaration.declarations[0].id.kind,
+                        BindingPatternKind::BindingIdentifier(id) if id.name == "scriptProperties"
+                    );
+                    let result = validation.variable_expressions(declaration, 0);
+                    validation.declaring_builder = false;
+                    result?;
                     continue;
                 }
                 let Some(Declaration::FunctionDeclaration(function)) = &export.declaration else {
@@ -394,6 +403,33 @@ struct Validation {
     declaring_builder: bool,
 }
 
+fn literal_script_metadata(expression: &Expression<'_>, depth: usize) -> bool {
+    match expression {
+        Expression::StringLiteral(text) => text.value.len() <= 4096,
+        Expression::ObjectExpression(object) if depth < 3 => {
+            let mut fields = BTreeSet::new();
+            object.properties.iter().all(|property| {
+                let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(property) = property else {
+                    return false;
+                };
+                property
+                    .key
+                    .static_name()
+                    .is_some_and(|name| fields.insert(name))
+                    && literal_script_metadata(&property.value, depth + 1)
+            })
+        }
+        Expression::ArrayExpression(array) if depth == 1 && array.elements.len() <= 32 => {
+            array.elements.iter().all(|element| {
+                element
+                    .as_expression()
+                    .is_some_and(|expression| literal_script_metadata(expression, depth + 1))
+            })
+        }
+        _ => false,
+    }
+}
+
 impl Validation {
     fn builder_fields(&mut self, expression: &Expression<'_>) -> Result<()> {
         let Expression::CallExpression(call) = expression else {
@@ -414,7 +450,9 @@ impl Validation {
         if method == "finish" && call.arguments.is_empty() {
             return Ok(());
         }
-        if !matches!(method, "addSlider" | "addCheckbox") || call.arguments.len() != 1 {
+        if !matches!(method, "addSlider" | "addCheckbox" | "addText" | "addCombo")
+            || call.arguments.len() != 1
+        {
             return Err(blocked("unsupported script builder method"));
         }
         let Some(Expression::ObjectExpression(object)) = call.arguments[0].as_expression() else {
@@ -719,7 +757,7 @@ impl Validation {
                 };
             }
         }
-        if !matches!(
+        let known_member = matches!(
             property,
             "origin"
                 | "scale"
@@ -743,8 +781,9 @@ impl Validation {
                 | "length"
                 | "average"
                 | "hasOwnProperty"
-        ) && !self.properties.contains(property)
-        {
+        ) || (self.declaring_builder
+            && matches!(property, "addText" | "addCombo"));
+        if !known_member && !self.properties.contains(property) {
             return Err(blocked(format!(
                 "unsupported SceneScript member {property}"
             )));
@@ -933,35 +972,43 @@ impl Validation {
                     ));
                 };
                 let method = member.property.name.as_str();
-                if !matches!(
-                    method,
-                    "registerAudioBuffers"
-                        | "createLayer"
-                        | "copy"
-                        | "push"
-                        | "unshift"
-                        | "reduce"
-                        | "addSlider"
-                        | "addCheckbox"
-                        | "finish"
-                        | "hasOwnProperty"
-                        | "abs"
-                        | "sign"
-                        | "sqrt"
-                        | "floor"
-                        | "ceil"
-                        | "round"
-                        | "trunc"
-                        | "sin"
-                        | "cos"
-                        | "tan"
-                        | "exp"
-                        | "log"
-                        | "pow"
-                        | "min"
-                        | "max"
-                ) || call.arguments.len() > 8
+                let string_builder =
+                    self.declaring_builder && matches!(method, "addText" | "addCombo");
+                if string_builder
+                    && !matches!(call.arguments.as_slice(), [argument] if argument.as_expression().is_some_and(|expression| literal_script_metadata(expression, 0)))
                 {
+                    return Err(blocked("string builder requires bounded literal metadata"));
+                }
+                let allowed_method = string_builder
+                    || matches!(
+                        method,
+                        "registerAudioBuffers"
+                            | "createLayer"
+                            | "copy"
+                            | "push"
+                            | "unshift"
+                            | "reduce"
+                            | "addSlider"
+                            | "addCheckbox"
+                            | "finish"
+                            | "hasOwnProperty"
+                            | "abs"
+                            | "sign"
+                            | "sqrt"
+                            | "floor"
+                            | "ceil"
+                            | "round"
+                            | "trunc"
+                            | "sin"
+                            | "cos"
+                            | "tan"
+                            | "exp"
+                            | "log"
+                            | "pow"
+                            | "min"
+                            | "max"
+                    );
+                if !allowed_method || call.arguments.len() > 8 {
                     return Err(blocked("unsupported dynamic method call"));
                 }
                 self.member(&member.object, method, depth + 1)?;
@@ -1145,18 +1192,35 @@ const HOST: &str = r#"
         if (!registration || ++builderCount>32) throw new TypeError('bounded builders require module scope');
         const values={};
         let done=false;
-        const add=(spec,slider)=>{
+        const add=(spec,kind)=>{
             if(done || !spec || typeof spec!=='object' || Array.isArray(spec) || Object.keys(values).length>=32) throw new TypeError('invalid builder state');
-            const allowed=slider?['name','label','value','min','max','integer']:['name','label','value'];
+            const allowed=kind==='slider'?['name','label','value','min','max','integer']:
+                ['name','label',kind==='combo'?'options':'value'];
             if(Object.keys(spec).some(k=>!allowed.includes(k)) || typeof spec.name!=='string' || !spec.name || spec.name.length>256 || ['constructor','prototype','__proto__'].includes(spec.name) || spec.name.startsWith('__lwe') || hasOwn(values,spec.name) || typeof spec.label!=='string' || spec.label.length>4096) throw new TypeError('invalid property metadata');
-            const selected=hasOwn(scriptOverrides,spec.name)?scriptOverrides[spec.name]:spec.value;
-            if(slider){
+            let fallback=spec.value;
+            let choices;
+            if(kind==='combo'){
+                if(!Array.isArray(spec.options) || spec.options.length<1 || spec.options.length>32) throw new TypeError('invalid combo options');
+                choices=new Set();
+                for(const option of spec.options){
+                    if(!option || typeof option!=='object' || Array.isArray(option) || Object.keys(option).length!==2 || !hasOwn(option,'label') || !hasOwn(option,'value') || typeof option.label!=='string' || option.label.length>4096 || typeof option.value!=='string' || option.value.length>256 || choices.has(option.value)) throw new TypeError('invalid combo option');
+                    choices.add(option.value);
+                }
+                fallback=spec.options[0].value;
+            }
+            const selected=hasOwn(scriptOverrides,spec.name)?scriptOverrides[spec.name]:fallback;
+            if(kind==='slider'){
                 if(!finite(spec.min)||!finite(spec.max)||spec.min>spec.max||typeof spec.integer!=='boolean'||!finite(spec.value)||spec.value<spec.min||spec.value>spec.max||!finite(selected)||selected<spec.min||selected>spec.max||(spec.integer && (!Number.isInteger(spec.value)||!Number.isInteger(selected)))) throw new TypeError('invalid slider value/range');
-            }else if(typeof spec.value!=='boolean'||typeof selected!=='boolean') throw new TypeError('invalid checkbox value');
+            }else if(kind==='checkbox'){
+                if(typeof spec.value!=='boolean'||typeof selected!=='boolean') throw new TypeError('invalid checkbox value');
+            }else if(kind==='text'){
+                if(typeof fallback!=='string'||fallback.length>4096||typeof selected!=='string'||selected.length>4096) throw new TypeError('invalid text value');
+            }else if(!choices.has(selected)) throw new TypeError('invalid combo value');
             values[spec.name]=selected;
             return builder;
         };
-        const builder=Object.freeze({addSlider:spec=>add(spec,true),addCheckbox:spec=>add(spec,false),finish:()=>{
+        const builder=Object.freeze({addSlider:spec=>add(spec,'slider'),addCheckbox:spec=>add(spec,'checkbox'),
+          addText:spec=>add(spec,'text'),addCombo:spec=>add(spec,'combo'),finish:()=>{
             if(done || Object.keys(scriptOverrides).some(key=>!hasOwn(values,key))) throw new TypeError('invalid builder overrides');
             done=true; builderFinished=true; return Object.freeze(values);
         }});
@@ -1989,6 +2053,64 @@ mod tests {
         ] {
             assert!(
                 prepare_bound(BUILDER_ALPHA, "alpha", serde_json::json!(1), overrides).is_err()
+            );
+        }
+    }
+
+    const BUILDER_TEXT: &str = r#"
+        export const scriptProperties=createScriptProperties()
+          .addText({name:'separator',label:'Separator',value:'/'})
+          .addCombo({name:'format',label:'Format',options:[
+            {label:'Long',value:'2'}, {label:'Short',value:'1'}
+          ]}).finish();
+        export function update(){return scriptProperties.format+scriptProperties.separator;}
+    "#;
+
+    #[test]
+    fn text_and_combo_builder_use_typed_overrides_and_first_option_default() {
+        for (overrides, expected) in [
+            (serde_json::json!({}), "2/"),
+            (serde_json::json!({"separator":"","format":"1"}), "1"),
+            (serde_json::json!({"separator":"年"}), "2年"),
+        ] {
+            let plan =
+                prepare_bound(BUILDER_TEXT, "text", serde_json::json!("x"), overrides).unwrap();
+            assert_eq!(plan.initial_states()[0].text.as_deref(), Some(expected));
+        }
+        for overrides in [
+            serde_json::json!({"separator":1}),
+            serde_json::json!({"separator":"x".repeat(4097)}),
+            serde_json::json!({"format":2}),
+            serde_json::json!({"format":"missing"}),
+            serde_json::json!({"unknown":"1"}),
+        ] {
+            assert!(
+                prepare_bound(BUILDER_TEXT, "text", serde_json::json!("x"), overrides).is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn string_builder_requires_literal_metadata_and_cannot_enable_string_indexing() {
+        for (old, replacement) in [
+            ("value:'/'", "value:'/'+'x'"),
+            ("label:'Short',value:'1'", "label:'Short',value:'2'"),
+            ("label:'Short',value:'1'", "label:'Short',value:1"),
+            ("options:[", "value:'1',options:["),
+            (
+                "scriptProperties.format+scriptProperties.separator",
+                "[1,2][scriptProperties.format]",
+            ),
+        ] {
+            let source = BUILDER_TEXT.replace(old, replacement);
+            assert!(
+                prepare_bound(
+                    &source,
+                    "text",
+                    serde_json::json!("x"),
+                    serde_json::json!({})
+                )
+                .is_err()
             );
         }
     }
