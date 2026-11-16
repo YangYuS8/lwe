@@ -1,0 +1,160 @@
+name: Build Linux bundles
+
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Full SHA of the source commit
+        required: true
+        type: string
+      artifact_prefix:
+        description: Prefix for the two uploaded artifacts
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  bundles:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: appimage
+            distro: ubuntu-22.04
+          - kind: native
+            distro: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+
+      - name: Verify source and read toolchain pins
+        id: toolchain
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          if ! [[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]] || [ "$(git rev-parse HEAD)" != "$SOURCE_REF" ]; then
+            echo "The checkout does not match the requested source commit" >&2
+            exit 1
+          fi
+          python3 - <<'PYTHON'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          toolchain = tomllib.loads(Path("rust-toolchain.toml").read_text())["toolchain"]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"channel={toolchain['channel']}\n")
+              output.write(f"components={','.join(toolchain.get('components', []))}\n")
+          PYTHON
+          cli_version="$(bash scripts/ensure-tauri-cli.sh --version)"
+          echo "cli-version=$cli_version" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install native build dependencies
+        if: matrix.kind == 'native'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libmpv-dev \
+            libpulse-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libwebkit2gtk-4.1-dev \
+            patchelf
+
+      - name: Setup native Rust
+        if: matrix.kind == 'native'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          components: ${{ steps.toolchain.outputs.components }}
+
+      - name: Cache native Rust artifacts
+        if: matrix.kind == 'native'
+        uses: swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.distro }}
+
+      - name: Prepare cache locations
+        run: |
+          if [ "${{ matrix.kind }}" = native ]; then
+            build_home="$HOME"
+            cli_root="$RUNNER_TEMP/lwe-tauri-cli"
+          else
+            build_home="$RUNNER_TEMP/lwe-appimage-home"
+            cli_root="$build_home/tauri-cli"
+            mkdir -p "$build_home"
+          fi
+          echo "BUILD_HOME=$build_home" >> "$GITHUB_ENV"
+          echo "CARGO_INSTALL_ROOT=$cli_root" >> "$GITHUB_ENV"
+          echo "$cli_root/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Tauri CLI binary
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.CARGO_INSTALL_ROOT }}/bin/cargo-tauri
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.distro }}-tauri-cli-${{ steps.toolchain.outputs.cli-version }}-rust-${{ steps.toolchain.outputs.channel }}-${{ hashFiles('packaging/appimage/Dockerfile') }}
+
+      - name: Cache AppImage Cargo downloads
+        if: matrix.kind == 'appimage'
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ env.BUILD_HOME }}/.cargo/registry/index
+            ${{ env.BUILD_HOME }}/.cargo/registry/cache
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.distro }}-cargo-downloads-${{ hashFiles('Cargo.lock', '.tauri-cli-version') }}
+
+      - name: Build native packages
+        if: matrix.kind == 'native'
+        run: |
+          corepack enable
+          bash scripts/build-linux-bundles.sh native
+
+      - name: Build and validate AppImage in Ubuntu 22.04
+        if: matrix.kind == 'appimage'
+        run: |
+          docker build --pull -t lwe-appimage-builder -f packaging/appimage/Dockerfile packaging/appimage
+          node_root="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/build-home \
+            --env CARGO_INSTALL_ROOT=/build-home/tauri-cli \
+            --env APPIMAGE_EXTRACT_AND_RUN=1 \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --volume "$BUILD_HOME:/build-home" \
+            --volume "$node_root:/opt/node:ro" \
+            --workdir /workspace \
+            lwe-appimage-builder bash -euo pipefail -c '
+              export PATH="$HOME/.cargo/bin:$HOME/bin:$CARGO_INSTALL_ROOT/bin:/opt/node/bin:$PATH"
+              curl --proto "=https" --tlsv1.2 --fail --silent --show-error https://sh.rustup.rs |
+                sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
+              mkdir -p "$HOME/bin"
+              corepack enable --install-directory "$HOME/bin"
+              bash scripts/build-linux-bundles.sh appimage
+            '
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_prefix }}-${{ matrix.kind }}
+          path: dist/*
+          if-no-files-found: error
