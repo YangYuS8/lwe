@@ -188,6 +188,7 @@ pub(super) fn fixture(repeat: bool, rgba: Vec<u8>) -> PreparedScene {
         },
         scripts: None,
         script_layers: BTreeMap::new(),
+        hierarchy: None,
     }
 }
 

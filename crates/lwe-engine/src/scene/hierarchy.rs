@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{Context, Result, ensure};
 use serde_json::Value;
 
-use super::{boolean, unsupported, vector};
+use super::{boolean, dynamic_script::LayerState, unsupported, vector};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Transform {
@@ -46,23 +46,142 @@ impl Transform {
     }
 }
 
-#[derive(Clone, Copy, Default)]
-pub(super) struct Placement {
-    pub(super) member: bool,
-    pub(super) transform_only: bool,
-    pub(super) world: Option<Transform>,
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Resolved {
+    pub(super) world: Transform,
+    pub(super) visible: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Node {
+    parent: Option<usize>,
+    authored: Resolved,
+    transform_only: bool,
+    controlled: bool,
+}
+
+#[derive(Debug, Default)]
+pub(super) struct Graph {
+    nodes: Vec<Option<Node>>,
+    // Transform evaluation order only. Rendering keeps the authored order.
+    order: Vec<usize>,
+}
+
+impl Graph {
+    pub(super) fn contains(&self, index: usize) -> bool {
+        self.node(index).is_some()
+    }
+
+    pub(super) fn is_transform_only(&self, index: usize) -> bool {
+        self.node(index).is_some_and(|node| node.transform_only)
+    }
+
+    pub(super) fn is_child(&self, index: usize) -> bool {
+        self.node(index).is_some_and(|node| node.parent.is_some())
+    }
+
+    pub(super) fn has_children(&self, index: usize) -> bool {
+        self.nodes
+            .iter()
+            .flatten()
+            .any(|node| node.parent == Some(index))
+    }
+
+    pub(super) fn is_dynamic(&self) -> bool {
+        self.nodes.iter().flatten().any(|node| node.controlled)
+    }
+
+    fn node(&self, index: usize) -> Option<&Node> {
+        self.nodes.get(index).and_then(Option::as_ref)
+    }
+
+    pub(super) fn resolve(&self, states: &[LayerState]) -> Result<Vec<Option<Resolved>>> {
+        self.resolve_nodes(states)
+            .map_err(|error| unsupported("hierarchy", format!("{error:#}")))
+    }
+
+    fn resolve_nodes(&self, states: &[LayerState]) -> Result<Vec<Option<Resolved>>> {
+        let mut result: Vec<Option<Resolved>> = vec![None; self.nodes.len()];
+        for &index in &self.order {
+            let node = self.nodes[index].context("Scene hierarchy is missing a local transform")?;
+            let mut layer = if node.controlled && !states.is_empty() {
+                let state = states
+                    .iter()
+                    .find(|state| state.handle == index + 1)
+                    .context("Scene hierarchy is missing a controlled layer state")?;
+                Resolved {
+                    world: planar_transform(state.origin, state.angles, state.scale)?,
+                    visible: state.visible,
+                }
+            } else {
+                node.authored
+            };
+            if let Some(parent) = node.parent {
+                let parent =
+                    result[parent].context("Scene hierarchy is missing a resolved parent")?;
+                layer.world = parent.world.compose(layer.world);
+                layer.visible &= parent.visible;
+            }
+            ensure!(
+                layer
+                    .world
+                    .x
+                    .into_iter()
+                    .chain(layer.world.y)
+                    .chain(layer.world.origin)
+                    .all(f32::is_finite),
+                "Scene hierarchy world transform exceeds numeric range"
+            );
+            result[index] = Some(layer);
+        }
+        Ok(result)
+    }
+}
+
+pub(super) fn is_transform_only(object: &Value) -> bool {
+    object.as_object().is_some_and(|fields| {
+        fields.keys().all(|key| {
+            matches!(
+                key.as_str(),
+                "id" | "name" | "origin" | "angles" | "scale" | "visible" | "parent" | "attachment"
+            )
+        })
+    })
+}
+
+fn planar_transform(origin: [f32; 3], angles: [f32; 3], scale: [f32; 3]) -> Result<Transform> {
+    let [x, y, z] = origin;
+    let [rx, ry, rz] = angles;
+    let [sx, sy, _] = scale;
+    ensure!(
+        z == 0.
+            && rx == 0.
+            && ry == 0.
+            && origin
+                .into_iter()
+                .chain(angles)
+                .chain(scale)
+                .all(f32::is_finite),
+        "Scene hierarchy requires a finite planar transform"
+    );
+    let (sin, cos) = rz.sin_cos();
+    Ok(Transform {
+        x: [cos * sx, sin * sx],
+        y: [-sin * sy, cos * sy],
+        origin: [x, y],
+    })
 }
 
 pub(super) fn prepare(
     objects: &[Value],
     controlled: &BTreeSet<usize>,
     canvas: [f32; 2],
-) -> Result<Vec<Placement>> {
+) -> Result<Graph> {
     if !objects
         .iter()
         .any(|object| object.get("parent").is_some() || object.get("attachment").is_some())
     {
-        return Ok(Vec::new());
+        return Ok(Graph::default());
     }
     prepare_graph(objects, controlled, canvas)
         .map_err(|error| unsupported("hierarchy", format!("{error:#}")))
@@ -72,7 +191,7 @@ fn prepare_graph(
     objects: &[Value],
     controlled: &BTreeSet<usize>,
     canvas: [f32; 2],
-) -> Result<Vec<Placement>> {
+) -> Result<Graph> {
     let mut ids = BTreeMap::new();
     for (index, object) in objects.iter().enumerate() {
         if let Some(id) = object.get("id") {
@@ -83,7 +202,7 @@ fn prepare_graph(
             );
         }
     }
-    let mut placements = vec![Placement::default(); objects.len()];
+    let mut members = vec![false; objects.len()];
     let mut parents = vec![None; objects.len()];
     for (index, object) in objects.iter().enumerate() {
         ensure!(
@@ -98,41 +217,20 @@ fn prepare_graph(
                 .filter(|id| *id != 0)
                 .context("Scene parent requires a positive layer ID")?;
             let parent = *ids.get(&id).context("Scene parent layer is missing")?;
-            ensure!(
-                boolean(&objects[parent], "visible", true)?,
-                "Hidden Scene parent layers are unsupported"
-            );
             parents[index] = Some(parent);
-            placements[index].member = true;
-            placements[parent].member = true;
+            members[index] = true;
+            members[parent] = true;
         }
     }
-    let mut local = vec![None; objects.len()];
-    for (index, placement) in placements.iter_mut().enumerate() {
-        if !placement.member {
+    let mut nodes = vec![None; objects.len()];
+    for (index, member) in members.into_iter().enumerate() {
+        if !member {
             continue;
         }
         let object = &objects[index];
+        let transform_only = is_transform_only(object);
         ensure!(
-            !controlled.contains(&(index + 1)),
-            "Script-controlled Scene hierarchy is unsupported"
-        );
-        placement.transform_only = object.as_object().is_some_and(|fields| {
-            fields.keys().all(|key| {
-                matches!(
-                    key.as_str(),
-                    "id" | "name"
-                        | "origin"
-                        | "angles"
-                        | "scale"
-                        | "visible"
-                        | "parent"
-                        | "attachment"
-                )
-            })
-        });
-        ensure!(
-            placement.transform_only
+            transform_only
                 || (object["image"].is_string()
                     && [
                         "text",
@@ -153,61 +251,66 @@ fn prepare_graph(
             "Perspective and propagation overrides are unsupported in Scene hierarchy"
         );
         ensure!(
-            (parents[index].is_none() && !placement.transform_only)
-                || object.get("origin").is_some(),
+            !boolean(object, "copybackground", false)?,
+            "Background-copy layers are unsupported in Scene hierarchy"
+        );
+        ensure!(
+            (parents[index].is_none() && !transform_only) || object.get("origin").is_some(),
             "Scene transform layer or parented image requires an explicit origin"
         );
-        let [x, y, z] = vector(object, "origin", [canvas[0] / 2., canvas[1] / 2., 0.])?;
-        let [rx, ry, rz] = vector(object, "angles", [0.; 3])?;
-        let [sx, sy, _] = vector(object, "scale", [1.; 3])?;
+        let origin = vector(object, "origin", [canvas[0] / 2., canvas[1] / 2., 0.])?;
+        let angles = vector(object, "angles", [0.; 3])?;
+        let scale = vector(object, "scale", [1.; 3])?;
         ensure!(
-            z == 0. && rx == 0. && ry == 0. && sx != 0. && sy != 0.,
+            scale[0] != 0. && scale[1] != 0.,
             "Scene hierarchy requires a nondegenerate planar transform"
         );
-        let (sin, cos) = rz.sin_cos();
-        local[index] = Some(Transform {
-            x: [cos * sx, sin * sx],
-            y: [-sin * sy, cos * sy],
-            origin: [x, y],
+        nodes[index] = Some(Node {
+            parent: parents[index],
+            authored: Resolved {
+                world: planar_transform(origin, angles, scale)?,
+                visible: boolean(object, "visible", true)?,
+            },
+            transform_only,
+            controlled: controlled.contains(&(index + 1)),
         });
     }
-    let mut visiting = vec![false; objects.len()];
-    let mut world = vec![None; objects.len()];
-    for (index, parent) in parents.iter().enumerate() {
-        if parent.is_some() {
-            placements[index].world =
-                Some(resolve(index, &parents, &local, &mut visiting, &mut world)?);
+
+    let mut marks = vec![Visit::Pending; objects.len()];
+    let mut order = Vec::new();
+    for (index, node) in nodes.iter().enumerate() {
+        if node.is_some() {
+            order_node(index, &parents, &mut marks, &mut order)?;
         }
     }
-    Ok(placements)
+    let graph = Graph { nodes, order };
+    graph.resolve_nodes(&[])?;
+    Ok(graph)
 }
 
-fn resolve(
+#[derive(Clone, Copy)]
+enum Visit {
+    Pending,
+    Visiting,
+    Done,
+}
+
+fn order_node(
     index: usize,
     parents: &[Option<usize>],
-    local: &[Option<Transform>],
-    visiting: &mut [bool],
-    world: &mut [Option<Transform>],
-) -> Result<Transform> {
-    if let Some(transform) = world[index] {
-        return Ok(transform);
+    marks: &mut [Visit],
+    order: &mut Vec<usize>,
+) -> Result<()> {
+    match marks[index] {
+        Visit::Done => return Ok(()),
+        Visit::Visiting => anyhow::bail!("Scene layer hierarchy contains a cycle"),
+        Visit::Pending => {}
     }
-    ensure!(!visiting[index], "Scene layer hierarchy contains a cycle");
-    visiting[index] = true;
-    let mut transform = local[index].context("Scene hierarchy is missing a local transform")?;
+    marks[index] = Visit::Visiting;
     if let Some(parent) = parents[index] {
-        transform = resolve(parent, parents, local, visiting, world)?.compose(transform);
+        order_node(parent, parents, marks, order)?;
     }
-    ensure!(
-        transform
-            .x
-            .into_iter()
-            .chain(transform.y)
-            .chain(transform.origin)
-            .all(f32::is_finite),
-        "Scene hierarchy world transform exceeds numeric range"
-    );
-    world[index] = Some(transform);
-    visiting[index] = false;
-    Ok(transform)
+    marks[index] = Visit::Done;
+    order.push(index);
+    Ok(())
 }
