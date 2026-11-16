@@ -827,6 +827,7 @@ mod tests {
             },
             scripts: None,
             script_layers: BTreeMap::new(),
+            hierarchy: None,
         };
         let mut renderer = scene.initialize()?;
         renderer.resize(2, 2)?;

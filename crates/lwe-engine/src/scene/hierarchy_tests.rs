@@ -8,6 +8,12 @@ fn check_hierarchy_pair(actual: [f32; 2], expected: [f32; 2]) {
     );
 }
 
+fn initial_hierarchy_layer(scene: &PreparedScene, authored_index: usize) -> &hierarchy::Resolved {
+    scene.hierarchy.as_ref().unwrap().initial[authored_index]
+        .as_ref()
+        .unwrap()
+}
+
 #[test]
 fn hierarchy_resolves_nested_local_transforms_without_reordering_draws() {
     let fixture = Fixture::new();
@@ -18,7 +24,7 @@ fn hierarchy_resolves_nested_local_transforms_without_reordering_draws() {
         {"id":95,"image":"models/image.json","origin":"10 11 0","size":"5 3"},
         {"id":5,"image":"models/image.json","parent":70,"origin":"-1 2 0","size":"7 1"},
         {"id":90,"image":"models/image.json","parent":11,"origin":"1 0 0","size":"1 3"},
-        {"id":51,"image":"models/image.json","parent":70,"origin":"0 0 0",
+        {"id":51,"image":"models/unused-hidden-leaf.json","parent":70,"origin":"0 0 0",
          "visible":false,"size":"9 9"}
     ]));
     let scene = PreparedScene::prepare(&fixture.0, None).unwrap();
@@ -40,6 +46,7 @@ fn hierarchy_resolves_nested_local_transforms_without_reordering_draws() {
         [[3., 5.], [5., 3.], [7., 1.], [1., 3.]]
     );
     assert!(layers[1].world_2d.is_none());
+    assert!(!initial_hierarchy_layer(&scene, 5).visible);
 
     let child = layers[0].world_2d.as_ref().expect("child world transform");
     // A quarter turn sends the scaled (4,-2) offset to (2,4).
@@ -132,7 +139,7 @@ fn hierarchy_rejects_invalid_ids_and_edges_including_hidden_leaves() {
 }
 
 #[test]
-fn hierarchy_rejects_unsupported_transforms_attachments_and_visibility() {
+fn hierarchy_rejects_unsupported_transforms_and_attachments() {
     let fixture = Fixture::new();
     let parent = serde_json::json!({"id":1,"name":"Pivot","origin":"8 8 0"});
     let child = serde_json::json!({"id":2,"image":"models/image.json","origin":"1 0 0","parent":1});
@@ -141,11 +148,11 @@ fn hierarchy_rejects_unsupported_transforms_attachments_and_visibility() {
         ("out-of-plane angle", "angles", serde_json::json!("0.5 0 0")),
         ("attachment", "attachment", serde_json::json!("bone")),
         (
-            "script-controlled child",
+            "scripted depth",
             "origin",
             serde_json::json!({
                 "value":"1 0 0",
-                "script":"export function update(value){return value;}"
+                "script":"export function update(){return new Vec3(1,0,1);}"
             }),
         ),
     ] {
@@ -157,29 +164,126 @@ fn hierarchy_rejects_unsupported_transforms_attachments_and_visibility() {
     missing_origin.as_object_mut().unwrap().remove("origin");
     expect_hierarchy_rejection(
         &fixture,
-        parent.clone(),
+        parent,
         missing_origin,
         "missing child-local origin",
     );
-    let mut hidden_parent = parent.clone();
-    hidden_parent["visible"] = Value::Bool(false);
-    expect_hierarchy_rejection(&fixture, hidden_parent, child.clone(), "hidden parent");
+}
+
+#[test]
+fn hierarchy_visibility_propagates_through_a_prepared_nested_chain() {
+    let fixture = Fixture::new();
+    let mut objects = serde_json::json!([
+        {"id":1,"name":"Pivot","origin":"7 8 0","visible":false},
+        {"id":2,"image":"models/image.json","parent":1,"origin":"1 0 0","visible":true},
+        {"id":3,"image":"models/image.json","parent":2,"origin":"2 1 0","visible":true},
+        {"id":4,"image":"models/image.json","origin":"11 10 0"}
+    ]);
+    fixture.scene(objects.clone());
+    let literal_hidden = PreparedScene::prepare(&fixture.0, None).unwrap();
+    assert_eq!(literal_hidden.summary.layer_count, 3);
+    assert_eq!(literal_hidden.summary.pass_count, 3);
+    assert_eq!(
+        literal_hidden.hierarchy.as_ref().unwrap().layers,
+        [(1, 0), (2, 1)]
+    );
+    assert!(literal_hidden.layers[2].world_2d.is_none());
+    assert!(!initial_hierarchy_layer(&literal_hidden, 1).visible);
+    let grandchild = initial_hierarchy_layer(&literal_hidden, 2);
+    assert!(!grandchild.visible);
+    check_hierarchy_pair(grandchild.world.origin, [10., 9.]);
+
     fixture.write(
         "project.json",
         br#"{"type":"scene","file":"scene.json","general":{"properties":{"show":{"type":"bool","value":true}}}}"#,
     );
-    let mut property_parent = parent;
-    property_parent["visible"] = serde_json::json!({"user":"show","value":true});
-    fixture.scene(serde_json::json!([property_parent, child]));
+    objects[0]["visible"] = serde_json::json!({"user":"show","value":true});
+    fixture.scene(objects.clone());
     let shown = PreparedScene::prepare(&fixture.0, None).unwrap();
-    assert_eq!(shown.summary.layer_count, 1);
-    let hidden = BTreeMap::from([("show".to_owned(), Value::Bool(false))]);
-    match PreparedScene::prepare_with_properties(&fixture.0, None, &hidden) {
-        Ok(_) => panic!("property override wrongly admitted a hidden parent"),
-        Err(error) => assert_eq!(
-            unsupported_feature_code(&error),
-            Some("hierarchy"),
-            "{error:#}"
-        ),
+    let hide = BTreeMap::from([("show".to_owned(), Value::Bool(false))]);
+    let hidden = PreparedScene::prepare_with_properties(&fixture.0, None, &hide).unwrap();
+    assert_eq!(shown.summary, hidden.summary);
+    for authored_index in [1, 2] {
+        assert!(initial_hierarchy_layer(&shown, authored_index).visible);
+        assert!(!initial_hierarchy_layer(&hidden, authored_index).visible);
+    }
+
+    // Effective visibility must not let an unvalidated asset into the graph.
+    objects[2]["image"] = serde_json::json!("models/hidden-invalid.json");
+    fixture.write("models/hidden-invalid.json", b"{");
+    fixture.scene(objects);
+    match PreparedScene::prepare_with_properties(&fixture.0, None, &hide) {
+        Ok(_) => panic!("hidden grandchild's invalid model was not validated"),
+        Err(error) => assert!(format!("{error:#}").contains("models/hidden-invalid.json")),
+    }
+}
+
+#[test]
+fn hierarchy_resolves_scripted_translation_and_visibility_from_frame_packets() {
+    let fixture = Fixture::new();
+    fixture.scene(serde_json::json!([
+        {"id":10,"name":"Pivot","scale":"2 2 1",
+         "origin":{"value":"2 3 0",
+          "script":"export function update(){return new Vec3(4+engine.runtime,5,0);}"},
+         "visible":{"value":true,
+          "script":"export function update(){return engine.runtime<0.5||engine.runtime>=1.5;}"}},
+        {"id":20,"image":"models/image.json","parent":10,
+         "origin":{"value":"2 1 0",
+          "script":"export function update(){return new Vec3(2,1+engine.runtime,0);}"}},
+        {"id":30,"image":"models/image.json","parent":20,"origin":"1 2 0"}
+    ]));
+    let scene = PreparedScene::prepare(&fixture.0, None).unwrap();
+    assert!(scene.summary.animated);
+    assert_eq!(scene.summary.layer_count, 2);
+    let plan = scene.hierarchy.as_ref().unwrap();
+    assert_eq!(plan.layers, [(1, 0), (2, 1)]);
+    let initial = initial_hierarchy_layer(&scene, 2);
+    assert!(initial.visible);
+    check_hierarchy_pair(initial.world.origin, [10., 11.]);
+
+    let worker = dynamic_script::ScriptWorker::spawn(scene.scripts.as_ref().unwrap()).unwrap();
+    let take = || {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            if let Some(packet) = worker.take_frame().unwrap() {
+                break packet;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "script worker timed out"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    };
+    let first = take();
+    assert_eq!((first.seq, first.time), (0, 0.));
+    for (seq, visible, child_origin) in [(1, false, [11., 13.]), (2, true, [12., 15.])] {
+        let now = seq as f64;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !worker
+            .submit_frame(seq, now, spectrum::SpectrumSnapshot::default())
+            .unwrap()
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "script submission timed out"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let frame = take();
+        assert_eq!((frame.seq, frame.time), (seq, now));
+        assert!(
+            frame
+                .states
+                .iter()
+                .find(|state| state.handle == 3)
+                .unwrap()
+                .visible
+        );
+        let resolved = plan.graph.resolve(&frame.states).unwrap();
+        assert_eq!(resolved[1].as_ref().unwrap().visible, visible);
+        let grandchild = resolved[2].as_ref().unwrap();
+        assert_eq!(grandchild.visible, visible);
+        check_hierarchy_pair(grandchild.world.origin, child_origin);
     }
 }

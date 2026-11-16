@@ -1548,7 +1548,8 @@ pub struct SceneRenderer {
     accepted_spectrum: super::spectrum::SpectrumSnapshot,
     scripts: Option<super::dynamic_script::ScriptWorker>,
     script_layers: BTreeMap<usize, usize>,
-    hidden_script_layers: std::collections::BTreeSet<usize>,
+    hierarchy: Option<Arc<super::SceneHierarchy>>,
+    hidden_layers: std::collections::BTreeSet<usize>,
     scripts_ready: bool,
     timed_sources: Vec<super::timed_runtime::Source>,
     text_sources: Vec<super::timed_runtime::TextSource>,
@@ -1647,7 +1648,8 @@ impl SceneRenderer {
                 })
                 .transpose()?,
             script_layers: scene.script_layers.clone(),
-            hidden_script_layers: std::collections::BTreeSet::new(),
+            hierarchy: scene.hierarchy.clone(),
+            hidden_layers: std::collections::BTreeSet::new(),
             scripts_ready: false,
             timed_sources: scene
                 .textures
@@ -1884,6 +1886,9 @@ impl SceneRenderer {
                 GpuParticleLayer::new(layer, 0x9e3779b97f4a7c15_u64.wrapping_mul(index as u64 + 1))
             })
             .collect::<Result<_>>()?;
+        if let Some(hierarchy) = &scene.hierarchy {
+            renderer.apply_hierarchy(hierarchy, &hierarchy.initial);
+        }
         check_gl("initializing Scene renderer")?;
         Ok(renderer)
     }
@@ -2428,6 +2433,24 @@ impl SceneRenderer {
         Ok(true)
     }
 
+    fn apply_hierarchy(
+        &mut self,
+        hierarchy: &super::SceneHierarchy,
+        placement: &[Option<super::hierarchy::Resolved>],
+    ) {
+        for &(node, index) in &hierarchy.layers {
+            let resolved = placement[node].as_ref().expect("prepared hierarchy node");
+            if hierarchy.graph.is_child(node) {
+                self.layers[index].world_2d = Some(resolved.world);
+            }
+            if resolved.visible {
+                self.hidden_layers.remove(&index);
+            } else {
+                self.hidden_layers.insert(index);
+            }
+        }
+    }
+
     fn prepare_packet(&mut self, replay: bool) -> Result<bool> {
         if replay
             && self
@@ -2445,11 +2468,11 @@ impl SceneRenderer {
         if !self.poll_cpu_packet(replay, true, false)? {
             return Ok(false);
         }
-        if self.job_requested {
-            let packet = self
-                .packet
-                .as_ref()
-                .context("Scene frame packet unavailable")?;
+        let packet = self
+            .packet
+            .as_ref()
+            .context("Scene frame packet unavailable")?;
+        let ready = if self.job_requested {
             let worker = self
                 .texture_worker
                 .as_mut()
@@ -2461,6 +2484,33 @@ impl SceneRenderer {
                 ready.seq == packet.seq && ready.time.to_bits() == packet.time.to_bits(),
                 "Scene texture job belongs to a different frame epoch"
             );
+            Some(ready)
+        } else {
+            None
+        };
+        // Compute the complete world snapshot only for an eligible accepted
+        // packet. Earlier worker polls and rollback replay keep the old state.
+        let hierarchy_update = self
+            .hierarchy
+            .as_ref()
+            .filter(|hierarchy| !replay && hierarchy.graph.is_dynamic())
+            .map(|hierarchy| -> Result<_> {
+                let placement = hierarchy.graph.resolve(&packet.states)?;
+                for &(node, index) in &hierarchy.layers {
+                    let resolved = placement[node]
+                        .as_ref()
+                        .context("Scene hierarchy node unavailable")?;
+                    ensure!(
+                        resolved
+                            .world
+                            .fits_projected_quad(self.layers[index].size, self.canvas),
+                        "Scene hierarchy exceeds projected numeric range"
+                    );
+                }
+                Ok((Arc::clone(hierarchy), placement))
+            })
+            .transpose()?;
+        if let Some(ready) = ready {
             // All replacement leases are acquired before mutating accepted views.
             let mut regions = Vec::new();
             for region in &ready.regions {
@@ -2518,10 +2568,13 @@ impl SceneRenderer {
                 layer.angles[2] = state.angles[2];
                 layer.tint = [state.color[0], state.color[1], state.color[2], state.alpha];
                 if state.visible {
-                    self.hidden_script_layers.remove(&index);
+                    self.hidden_layers.remove(&index);
                 } else {
-                    self.hidden_script_layers.insert(index);
+                    self.hidden_layers.insert(index);
                 }
+            }
+            if let Some((hierarchy, placement)) = hierarchy_update {
+                self.apply_hierarchy(&hierarchy, &placement);
             }
             self.accepted_seq = packet.seq;
             self.accepted_time = packet.time;
@@ -2671,9 +2724,7 @@ impl SceneRenderer {
                 continue;
             };
             let layer = &self.layers[index];
-            if self.hidden_script_layers.contains(&index)
-                || layer.scale[0] == 0.0
-                || layer.scale[1] == 0.0
+            if self.hidden_layers.contains(&index) || layer.scale[0] == 0.0 || layer.scale[1] == 0.0
             {
                 continue;
             }
@@ -2892,7 +2943,7 @@ impl SceneRenderer {
         };
         if !layer.full_canvas_shader
             || !matches!(layer.blend, Blend::Replace)
-            || self.hidden_script_layers.contains(&index)
+            || self.hidden_layers.contains(&index)
             || layer_matrix(self.canvas, layer, size[0], size[1]) != IDENTITY
             || reads_full_frame(layer)
             || !no_alias(layer)
@@ -2929,7 +2980,8 @@ impl SceneRenderer {
         self.text_sources.clear();
         self.scripts = None;
         self.script_layers.clear();
-        self.hidden_script_layers.clear();
+        self.hierarchy = None;
+        self.hidden_layers.clear();
         self.scripts_ready = false;
         self.bloom = None;
         self.spectrum = None;
@@ -3744,6 +3796,7 @@ mod tests {
             let prepared = PreparedScene {
                 scripts: None,
                 script_layers: BTreeMap::new(),
+                hierarchy: None,
                 audio: Vec::new(),
                 bloom: None,
                 particles: Vec::new(),
@@ -3905,6 +3958,7 @@ mod tests {
         let prepared = PreparedScene {
             scripts: None,
             script_layers: BTreeMap::new(),
+            hierarchy: None,
             audio: Vec::new(),
             bloom: None,
             particles: Vec::new(),

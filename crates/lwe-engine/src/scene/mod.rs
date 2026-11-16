@@ -104,6 +104,14 @@ pub struct PreparedScene {
     summary: SceneSummary,
     scripts: Option<Arc<dynamic_script::PreparedScripts>>,
     script_layers: BTreeMap<usize, usize>,
+    hierarchy: Option<Arc<SceneHierarchy>>,
+}
+
+struct SceneHierarchy {
+    graph: hierarchy::Graph,
+    // Authored node indices map to render layers without changing draw order.
+    layers: Vec<(usize, usize)>,
+    initial: Vec<Option<hierarchy::Resolved>>,
 }
 
 pub(crate) struct PreparedParticleLayer {
@@ -371,7 +379,7 @@ fn has_script(value: &Value) -> bool {
     }
 }
 
-/// Runtime bindings are admitted only on modeled image-layer properties.
+/// Runtime bindings are limited to modeled layer properties.
 /// Resource/material/general scripts still pass through the existing gate.
 fn extract_runtime_bindings(
     scene: &mut Value,
@@ -394,9 +402,19 @@ fn extract_runtime_bindings(
     let objects = scene["objects"]
         .as_array_mut()
         .context("Scene has no objects")?;
+    let parent_ids: BTreeSet<_> = objects
+        .iter()
+        .filter_map(|object| object.get("parent").and_then(Value::as_u64))
+        .collect();
     for (index, object) in objects.iter_mut().enumerate() {
         let image = object.get("image").is_some();
         let text = object.get("text").is_some();
+        let transform = hierarchy::is_transform_only(object)
+            && (object.get("parent").is_some()
+                || object
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|id| parent_ids.contains(&id)));
         let Some(fields) = object.as_object_mut() else {
             bail!("Invalid Scene object");
         };
@@ -415,7 +433,7 @@ fn extract_runtime_bindings(
             {
                 continue;
             }
-            if !(image || text)
+            if !(image || text || transform)
                 || !(text && property == "text"
                     || matches!(
                         property.as_str(),
@@ -1798,7 +1816,7 @@ impl PreparedScene {
         }
         let mut controlled_handles: BTreeSet<_> =
             bindings.iter().map(|binding| binding.layer).collect();
-        let placement = hierarchy::prepare(objects, &controlled_handles, [width, height])?;
+        let hierarchy = hierarchy::prepare(objects, &controlled_handles, [width, height])?;
         let scripts = if bindings.is_empty() {
             None
         } else {
@@ -1838,6 +1856,12 @@ impl PreparedScene {
                 Value::Object(snapshot),
             )?))
         };
+        let initial_placements = hierarchy.resolve(
+            scripts
+                .as_ref()
+                .map_or(&[], |scripts| scripts.initial_states()),
+        )?;
+        let mut hierarchy_layers = Vec::new();
         let pass_limit = if scripts.is_some() { 128 } else { MAX_PASSES };
         let mut authored_objects = objects.clone();
         let mut handles: Vec<_> = (1..=authored_objects.len()).collect();
@@ -1878,7 +1902,8 @@ impl PreparedScene {
         .map(Arc::new);
         let mut effect_count = 0;
         for (index, (object, handle)) in authored_objects.iter().zip(handles).enumerate() {
-            let placement = placement.get(index).copied().unwrap_or_default();
+            let hierarchy_member = hierarchy.contains(index);
+            let placement = initial_placements.get(index).and_then(Option::as_ref);
             preparation.active_layer_id = object
                 .get("id")
                 .map(|id| id.as_u64().context("Invalid layer identity"))
@@ -1893,10 +1918,14 @@ impl PreparedScene {
             } else {
                 None
             };
-            // Keep runtime-owned images allocated even when initially hidden.
-            if (!boolean(object, "visible", true)? && script_state.is_none())
+            // Keep revealable images and parents validated even when a branch
+            // starts hidden. A locally hidden, uncontrolled leaf cannot reveal
+            // in this generation and keeps the existing resource skip.
+            if (!boolean(object, "visible", true)?
+                && script_state.is_none()
+                && !hierarchy.has_children(index))
                 || object.get("sound").is_some()
-                || placement.transform_only
+                || hierarchy.is_transform_only(index)
             {
                 continue;
             }
@@ -2044,7 +2073,7 @@ impl PreparedScene {
             }
             let fullscreen = boolean(&model, "fullscreen", false)?;
             let passthrough = boolean(&model, "passthrough", false)?;
-            if placement.member && (fullscreen || passthrough) {
+            if hierarchy_member && (fullscreen || passthrough) {
                 return Err(unsupported("hierarchy", "Fullscreen Scene hierarchy"));
             }
             ensure!(
@@ -2150,8 +2179,7 @@ impl PreparedScene {
                 "Invalid image layer size"
             );
             if placement
-                .world
-                .is_some_and(|world| !world.fits_projected_quad(size, [width, height]))
+                .is_some_and(|resolved| !resolved.world.fits_projected_quad(size, [width, height]))
             {
                 return Err(unsupported(
                     "hierarchy",
@@ -2190,7 +2218,7 @@ impl PreparedScene {
                 .map(|value| value.as_u64().context("Invalid image color blend mode"))
                 .transpose()?
                 .unwrap_or(0);
-            if placement.member
+            if hierarchy_member
                 && (color_mode != 0
                     || stages.iter().flat_map(|stage| &stage.passes).any(|pass| {
                         pass.textures
@@ -2221,8 +2249,13 @@ impl PreparedScene {
             if script_state.is_some() {
                 script_layers.insert(handle, layers.len());
             }
+            if hierarchy_member {
+                hierarchy_layers.push((index, layers.len()));
+            }
             layers.push(PreparedLayer {
-                world_2d: placement.world,
+                world_2d: placement
+                    .filter(|_| hierarchy.is_child(index))
+                    .map(|resolved| resolved.world),
                 size,
                 origin: [origin[0], origin[1]],
                 scale: [scale[0], scale[1]],
@@ -2243,10 +2276,7 @@ impl PreparedScene {
                 text: prepared_text,
             });
         }
-        ensure!(
-            !draw_order.is_empty(),
-            "Scene has no visible renderable layers"
-        );
+        ensure!(!draw_order.is_empty(), "Scene has no renderable layers");
         let audio = audio::prepare_audio(&assets, &scene)?;
         let pass_count = preparation.pass_count + usize::from(bloom.is_some()) * 4;
         ensure!(
@@ -2300,6 +2330,13 @@ impl PreparedScene {
             summary,
             scripts,
             script_layers,
+            hierarchy: (!hierarchy_layers.is_empty()).then(|| {
+                Arc::new(SceneHierarchy {
+                    graph: hierarchy,
+                    layers: hierarchy_layers,
+                    initial: initial_placements,
+                })
+            }),
         };
         renderer::validate_gpu_budget(&prepared)?;
         Ok(prepared)
@@ -2437,9 +2474,9 @@ mod tests {
     include!("instance_material_tests.rs");
     include!("hierarchy_tests.rs");
 
-    struct Fixture(PathBuf);
+    pub(super) struct Fixture(pub(super) PathBuf);
     impl Fixture {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             static NEXT: AtomicU64 = AtomicU64::new(0);
             let stamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -2478,7 +2515,7 @@ mod tests {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, bytes).unwrap();
         }
-        fn scene(&self, objects: Value) {
+        pub(super) fn scene(&self, objects: Value) {
             let scene = serde_json::json!({"general":{"orthogonalprojection":{"width":16,"height":16}},"objects":objects});
             self.write("scene.json", &serde_json::to_vec(&scene).unwrap());
         }

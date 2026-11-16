@@ -65,7 +65,7 @@ fn bars_match(renderer: &SceneRenderer, audio: [f32; 64], visible: bool) -> bool
                 && close(layer.scale[0], 5.0)
                 && close(layer.scale[1], audio[band] * 50.0)
                 && close(layer.angle, 0.0)
-                && renderer.hidden_script_layers.contains(index) != visible
+                && renderer.hidden_layers.contains(index) != visible
         })
 }
 
@@ -292,7 +292,7 @@ fn bar_transforms(renderer: &SceneRenderer) -> Vec<BarTransform> {
                 scale: layer.scale,
                 angle: layer.angle,
                 tint: layer.tint,
-                hidden: renderer.hidden_script_layers.contains(index),
+                hidden: renderer.hidden_layers.contains(index),
             }
         })
         .collect()
@@ -461,7 +461,7 @@ fn check_case(
     )?;
     if !visible {
         ensure!(
-            renderer.hidden_script_layers.len() == 64,
+            renderer.hidden_layers.len() == 64,
             "av=0 did not hide every script-created bar"
         );
     }
@@ -497,7 +497,7 @@ fn check_case(
     )?;
     for index in &indices {
         renderer.layers[*index].tint[3] = 1.0;
-        renderer.hidden_script_layers.insert(*index);
+        renderer.hidden_layers.insert(*index);
     }
     renderer.cache_valid = false;
     let hidden = redraw(&mut renderer, &target, 15.0, ramp)?;
@@ -626,7 +626,7 @@ fn live_frame(
                     close(layer.origin[0], 1065.165 + band as f32 * 30.0)
                         && close(layer.scale[0], 5.0)
                         && (layer.scale[1] - captured.script_average[band] * 50.0).abs() < 0.02
-                        && !renderer.hidden_script_layers.contains(index)
+                        && !renderer.hidden_layers.contains(index)
                 });
         if drawn && level_matches && transforms_match {
             let pixels = read_pixels(target)?;

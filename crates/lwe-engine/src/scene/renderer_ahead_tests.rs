@@ -386,6 +386,128 @@ fn frozen_rollback_replays_accepted_epoch_before_consuming_ahead_packet() -> Res
 
 #[test]
 #[ignore = "requires opt-in surfaceless EGL; no desktop backend"]
+fn frozen_timed_hierarchy_replays_accepted_pose_and_history_before_pending_epoch() -> Result<()> {
+    use super::super::dynamic_script::{Binding, LayerState, PreparedScripts};
+    use serde_json::json;
+
+    let mut scene = fixture(true, false)?;
+    scene.canvas = [4., 4.];
+    scene.layers[0].stages[0].passes[0].shader =
+        Some(super::super::shader::image_material_variant(
+            &BTreeMap::from([("SPRITESHEET".into(), 1)]),
+            true,
+        )?);
+    let objects = [
+        json!({"id":11,"image":"models/image.json","parent":29,"origin":"0 0 0"}),
+        json!({"id":29,"origin":"1 2 0"}),
+    ];
+    let graph =
+        super::super::hierarchy::prepare(&objects, &[2].into_iter().collect(), scene.canvas)?;
+    let state = |handle, origin| LayerState {
+        handle,
+        origin,
+        scale: [1.; 3],
+        angles: [0.; 3],
+        color: [1.; 3],
+        alpha: 1.,
+        visible: true,
+        text: None,
+    };
+    let scripts = PreparedScripts::prepare(
+        vec![Binding {
+            layer: 2,
+            property: "origin".into(),
+            source: "let n=0;export function update(){n+=1;return new Vec3(n===1?1:3,2,0);}".into(),
+            input: json!([1., 2., 0.]),
+            script_properties: json!({}),
+        }],
+        vec![state(1, [0.; 3]), state(2, [1., 2., 0.])],
+        json!({}),
+    )?;
+    scene.hierarchy = Some(Arc::new(super::super::SceneHierarchy {
+        initial: graph.resolve(scripts.initial_states())?,
+        graph,
+        layers: vec![(0, 0)],
+    }));
+    scene.scripts = Some(Arc::new(scripts));
+
+    let _context = super::sharing_tests::Offscreen::new()?;
+    let output = RenderTarget::new(8, 8)?;
+    unsafe { gl::BindFramebuffer(gl::DRAW_FRAMEBUFFER, output.fbo) };
+    let pool = TexturePool::new()?;
+    let mut renderer = SceneRenderer::initialize_shared(&scene, Rc::clone(&pool))?;
+    let pose = |renderer: &SceneRenderer| renderer.layers[0].world_2d.unwrap().origin;
+    let sample = |rgba: &[u8], size: usize, x: usize| {
+        let offset = (size * (size / 2) + x) * 4;
+        [rgba[offset], rgba[offset + 1], rgba[offset + 2]]
+    };
+    draw(&mut renderer, 4, 0., false)?;
+    renderer.update(0.)?;
+    let before = accepted(&renderer)?;
+    assert_eq!(pose(&renderer), [1., 2.]);
+    assert_eq!(before.texture_frames, [Some(0)]);
+    let red = sample(&before.cache, 4, 1);
+    assert!(red[0] > 64 && red[1..] == [0, 0]);
+    assert_eq!(sample(&before.cache, 4, 3), [0; 3]);
+
+    renderer.texture_worker = Some(super::super::timed_runtime::TimedWorker::held(Arc::new(
+        AtomicBool::new(false),
+    ))?);
+    ahead(&mut renderer, 0.125, true)?;
+    let pending = renderer
+        .packet
+        .clone()
+        .context("No next hierarchy packet")?;
+    assert_eq!((pending.seq, pending.time), (1, 0.125));
+    assert!(
+        pending
+            .states
+            .iter()
+            .any(|s| s.handle == 2 && s.origin == [3., 2., 0.])
+    );
+    assert!(!renderer.render(4, 4, 0.125)?);
+    assert_eq!(pose(&renderer), [1., 2.]);
+    assert_eq!(accepted(&renderer)?, before);
+
+    renderer.freeze_for_rollback()?;
+    assert_eq!(renderer.packet.as_ref(), Some(&pending));
+    assert!(renderer.texture_worker.is_none() && renderer.textures[0].frame.is_none());
+    assert_eq!(
+        renderer.frozen_histories[&(0, 1, "history".into())].pixels(),
+        before.history
+    );
+    renderer.thaw(true);
+    let replay = draw(&mut renderer, 8, 0.5, true)?;
+    assert_eq!(pose(&renderer), [1., 2.]);
+    assert_eq!(renderer.accepted_seq, before.seq);
+    assert_eq!(renderer.textures[0].frame, Some(0));
+    assert_eq!(renderer.packet.as_ref(), Some(&pending));
+    assert_eq!(
+        pixels(&renderer.layers[0].stages[1].targets["history"])?,
+        before.history
+    );
+    assert_eq!(sample(&replay, 8, 2), red);
+    assert_eq!(sample(&replay, 8, 6), [0; 3]);
+
+    renderer.resume();
+    let resumed = draw(&mut renderer, 8, 0.75, false)?;
+    assert_eq!((renderer.accepted_seq, renderer.accepted_time), (1, 0.125));
+    assert_eq!(renderer.textures[0].frame, Some(1));
+    assert_eq!(pose(&renderer), [3., 2.]);
+    assert_eq!(sample(&resumed, 8, 2), [0; 3]);
+    assert!(sample(&resumed, 8, 6)[1] > 64);
+    assert_ne!(
+        pixels(&renderer.layers[0].stages[1].targets["history"])?,
+        before.history
+    );
+    renderer.cleanup();
+    pool.drain_retired()?;
+    assert_eq!(pool.resident_bytes()?, 0);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires opt-in surfaceless EGL; no desktop backend"]
 fn topology_cancel_releases_ahead_permit_and_preserves_gated_job() -> Result<()> {
     let _context = super::sharing_tests::Offscreen::new()?;
     let pool = TexturePool::new()?;
