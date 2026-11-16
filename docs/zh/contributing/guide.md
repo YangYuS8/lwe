@@ -535,6 +535,24 @@ Audio NIR 已有四个 lane-varying `load_ubo`，紧凑字节范围为 0–127/1
 
 本批不代表 Windows 运行、30 FPS/日用、物理多输出、新 UI/原子保存、安装包或长期验收；物理休眠/恢复继续跳过。
 
+### Scene AMD 硬件计数器调查（2026-11-16） {#scene-hardware-counters-2026-11-16}
+
+本次独立诊断以已合并 #113 `13c2ee1b2d0075b552639bcbbf04d569a40255a3` 和原 Miku 资源为基线。私有 OpenGL 4.6 probe 使用 Radeon 680M（Rembrandt/GFX10.3、radeonsi、Mesa 26.2.6），暴露 48 个 group、11,001 个计数器。重复启动同一 monitor 会得到累积结果，或在停止对应工作后仍读到旧值；这些样本隔离失败，排除且不做相减修正。另用 144 个独立新进程/EGL context 执行零、一次、两次 draw 的合成对照，校准九个 selector；所有零 draw 计数均为零。这验证该驱动的事件计数行为，不度量耗时。
+
+原场景诊断共 48 份独立采样：六份关闭计数、六份仅 elapsed query、十八份空区间、十八份开启计数的 draw。比较顺序号 2/5/8 的原 Simple Audio Bars（layer 2/stage 1/pass 0）及 layer 8 原 ColorMode 28 合成。两个采样目标和 canvas 均为 3840×2160，最终离屏输出为 2160×1440。十八个匹配空区间均返回零。全部采样的八个最终输出 hash、atlas 选帧和场景时间 bits 均匹配冻结基线的相应 off 对照，原输入 hash 不变；未读取历史像素。采样点前 `glFinish` 及串行新 context 使这些私有诊断与不带插桩的原生吞吐量测分开。
+
+CB0 绘制 quad 数相同时，相比 Audio，Color 的 CB0 write requests 约为 2.46 倍、TCP0 与 TCP1 各自的 L0 requests 约为 1.53 倍、SQ 像素 VALU issues 约为 1.18 倍。Audio 的 SQ69 buffer/image load-or-sample instructions 更多，SQ69 不只计纹理采样。独立的仅 elapsed query 对照中位数为 Audio 4.2821 ms、Color 4.8870 ms。这些是工作量指标与独立完成区间，不是 GPU 耗时占比、全芯片 cache/DRAM 流量、因果瓶颈或插桩开销量测；不把事件或时间区间相加推算算术、采样和写回的成本占比。不同场景序号的样本也不能估计固定序号的波动。
+
+Audio 省略 pass 的候选未通过严格 AMD RGBA 对照。等尺寸恒等 fixture 在 Miku 的尺寸相同，但在 16381×257 时 16,839,668 字节中有 850,965 字节不同，最大差 1。只在该场景尺寸一致，不能支持用别名替代通用 `LINEAR` draw 与 RGBA8 写入。一个私有等尺寸 snapshot 试验按 A–B–B–A 顺序在序号 2/5/8 比较原 `BlitFramebuffer` 与 `CopyImageSubData`（每条路径六样本），八输出 hash 全部匹配。仅 snapshot 的完成区间中位数为 Blit 1.097000 ms、CopyImage 1.136580 ms，后者有一次为 2.245860 ms。未观察到有用的缩短，不保留；这不是 FPS 对比。私有诊断 probe 及产物不提交。
+
+本轮保留的渲染变更，仅对最后一个符合条件的原合成交换两个已有 canvas target 的逻辑角色：原 shader 读当前 canvas、写另一块，后续 draw 以写入的目标为当前 canvas，省一次合成前 snapshot。门控要求展开并适配后的内置 ColorMode 28 两个 shader stage 的 hash 均精确匹配，运行时为恒等矩阵与 Replace blend，GL 状态允许安全全画布覆盖，并验证该合成与后续 draw 无读写别名。源码、几何、GL 状态或目标不满足条件均走原 snapshot。仅引擎私有、自有的 EGL 路径可授权；context 一旦交给 libmpv GL 就永久失去资格，即使初始化失败也不例外，只有新 context 才能重新获得资格。公开及外部路径走回退。两个 shader 的源码、原尺寸、资源和 25 个逻辑 pass 不变。
+
+独立 AMD 同二进制串行离屏 A–B–B–A 每条路径测量 32 个成功帧（3840×2160 canvas、1920×1080 输出）。旧路径两轮中位数均高于晚期合成两轮，合并中位数从 **40.439025 降至 39.390805 ms（−2.59%）**。计时不含像素读回及 swap，但可能含 CPU 提交间隔；这是 GPU 完成区间，不能外推原生 FPS。完整原场景通过生产 renderer 在 AMD 和 llvmpipe 各执行两种路径；各驱动内八输出、24 历史像素 hash 和除 probe 标记外的报告字段均匹配，包括精确暂停/冻结回滚和 10 图层/5 特效/25 pass。CPU 峰值 525,312,699 B、GPU 过渡并集 525,624,984 B 均低于 512 MiB，结束 CPU/pool 核算为零。三项专项 GPU 测试另通过。
+
+在隔离嵌套 `niri` 与私有软件音频的功能检查中，无插桩生产 probe（`887208b15ba812388fcbdc4cf9bd9bec417d353efded0042a79346617ea1bad3`）三秒动画 draw/swap 为 72/72，暂停活动为零，恢复为 73/73。暂停时切换静态内容仅一次 draw/swap，接下来三秒保持 idle。清除、后端 join、自有 probe/player 退出通过，二进制和原输入不变；1920×1080 暂停截图经视觉复核，原默认 Miku 与 CRT 完整。独立清理核对确认三个自有 helper 退出、测试窗口和私有 socket 移除；前后读回显示宿主音频默认值不变、原焦点恢复。此为功能检查，不是原生 FPS 对比。
+
+另一个插桩 probe（`2fd7adbfb75ee84bfac4a74cea9b7649ea4920b47f30cea01a9f05930bc57a9e`）在同一 EGL context generation（1）执行 Scene → Video → Scene，Video 与恢复后的 Scene 在各自三秒窗口内分别有 89、71 次 swap。日志在唯一一次 foreign-GL 交接前记录 194 次 layer 8 替换，交接后为零，验证同 context 的 libmpv 路径保留 snapshot 回退。该 probe 与生产功能检查和离屏计时独立。workspace 检查通过 562 项普通测试（含两项 doctest），43 项忽略；clippy 和 fmt 检查通过。本批不建立 Windows 一致性、30 FPS/日用性能、UI 或安装包验收、物理多输出或长时运行结论；物理休眠/恢复继续跳过。
+
 ### 已记录的实验性 Scene 验收
 
 2026-10-09 的开发版本验收环境为 Wayland 与 `niri`、AMD Radeon 680M（`1002:1681`，`amdgpu`），仅一个 `eDP-1` 输出，2160×1440、缩放 1.25。场景样本 `3337606455` 使用默认零 X/Y 相机，包含一个图片图层与 Shine：5 个特效 pass、总计 6 个 pass。全分辨率截图确认 Shine 实际可见渲染。

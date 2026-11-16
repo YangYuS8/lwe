@@ -1263,6 +1263,7 @@ struct GpuLayer {
     blend: Blend,
     stages: Vec<GpuStage>,
     composite: Option<Program>,
+    full_canvas_shader: bool,
     work_offset: usize,
     direct: bool,
     origin_z: f32,
@@ -1317,6 +1318,7 @@ impl GpuLayer {
             tint: layer.tint,
             blend: layer.blend,
             stages,
+            full_canvas_shader: layer.composite.as_ref().is_some_and(full_canvas_shader),
             composite: layer
                 .composite
                 .as_ref()
@@ -1524,6 +1526,9 @@ pub struct SceneRenderer {
     bloom: Option<super::postprocess::BloomRenderer>,
     scratch: BTreeMap<(i32, i32), Vec<RenderTarget>>,
     full_frame: Vec<RenderTarget>,
+    canvas_replacement_allowed: bool,
+    #[cfg(test)]
+    canvas_replacements: u64,
     spectrum: Option<super::spectrum::Spectrum>,
     analysis_active: bool,
     last_spectrum: super::spectrum::SpectrumSnapshot,
@@ -1614,6 +1619,9 @@ impl SceneRenderer {
             bloom: None,
             scratch: BTreeMap::new(),
             full_frame: Vec::new(),
+            canvas_replacement_allowed: false,
+            #[cfg(test)]
+            canvas_replacements: 0,
             spectrum: None,
             analysis_active: false,
             last_spectrum: super::spectrum::SpectrumSnapshot::default(),
@@ -2617,13 +2625,20 @@ impl SceneRenderer {
             gl::ClearColor(self.clear[0], self.clear[1], self.clear[2], self.clear[3]);
             gl::Clear(gl::COLOR_BUFFER_BIT);
         }
+        let late_composite = self.late_canvas_replacement(composition_size);
+        let mut current_canvas = 0;
         let inputs = TextureInputs {
             textures: &self.textures,
             black,
-            full_frame: self.full_frame.get(1).map(|frame| &frame.texture),
+            full_frame: None,
             replay,
         };
         for object in &self.draw_order {
+            let target = self
+                .full_frame
+                .get(current_canvas)
+                .map_or(output_target, |f| f.fbo);
+            let other_canvas = 1 - current_canvas;
             let super::DrawObject::Image(index) = *object else {
                 let super::DrawObject::Particles(index) = *object else {
                     unreachable!()
@@ -2659,18 +2674,23 @@ impl SceneRenderer {
                         .flat_map(|stage| &stage.passes)
                         .flat_map(|pass| &pass.textures)
                         .any(|binding| matches!(binding, TextureBinding::FullFrame)));
+            let swap_canvas = late_composite == Some(index);
             let sample_current = needs_frame && layer.can_sample_current_frame();
             let inputs = TextureInputs {
                 full_frame: self
                     .full_frame
-                    .get(usize::from(!sample_current))
+                    .get(if sample_current {
+                        current_canvas
+                    } else {
+                        other_canvas
+                    })
                     .map(|frame| &frame.texture),
                 ..inputs
             };
-            if needs_frame && !sample_current {
+            if needs_frame && !sample_current && !swap_canvas {
                 unsafe {
                     gl::BindFramebuffer(gl::READ_FRAMEBUFFER, target);
-                    gl::BindFramebuffer(gl::DRAW_FRAMEBUFFER, self.full_frame[1].fbo);
+                    gl::BindFramebuffer(gl::DRAW_FRAMEBUFFER, self.full_frame[other_canvas].fbo);
                     gl::BlitFramebuffer(
                         0,
                         0,
@@ -2709,8 +2729,19 @@ impl SceneRenderer {
                 &spectrum,
             )?;
             let composite = layer.composite.as_ref().unwrap_or(copy);
+            let (composite_fbo, background_slot) = if swap_canvas {
+                ensure!(
+                    self.full_frame
+                        .iter()
+                        .all(|frame| frame.texture.id != output.id),
+                    "Scene replacement output aliases a canvas texture"
+                );
+                (self.full_frame[other_canvas].fbo, current_canvas)
+            } else {
+                (target, other_canvas)
+            };
             unsafe {
-                gl::BindFramebuffer(gl::DRAW_FRAMEBUFFER, target);
+                gl::BindFramebuffer(gl::DRAW_FRAMEBUFFER, composite_fbo);
                 gl::Viewport(0, 0, composition_size[0], composition_size[1]);
                 gl::UseProgram(composite.id);
                 set_blend(layer.blend);
@@ -2723,7 +2754,7 @@ impl SceneRenderer {
                     output.resolution().as_ptr(),
                 );
                 gl::Uniform4f(composite.location("g_Color4"), 1.0, 1.0, 1.0, 1.0);
-                if let Some(frame) = self.full_frame.get(1) {
+                if let Some(frame) = self.full_frame.get(background_slot) {
                     gl::ActiveTexture(gl::TEXTURE4);
                     gl::BindTexture(gl::TEXTURE_2D, frame.texture.id);
                     texture_parameters(false);
@@ -2739,8 +2770,16 @@ impl SceneRenderer {
             unsafe {
                 gl::DrawArrays(gl::TRIANGLES, 0, 6);
             }
+            if swap_canvas {
+                check_gl("drawing full-canvas Scene composite")?;
+                current_canvas = other_canvas;
+                #[cfg(test)]
+                {
+                    self.canvas_replacements += 1;
+                }
+            }
         }
-        if let Some(frame) = self.full_frame.first() {
+        if let Some(frame) = self.full_frame.get(current_canvas) {
             unsafe {
                 gl::BindFramebuffer(gl::DRAW_FRAMEBUFFER, output_target);
                 gl::Viewport(0, 0, width, height);
@@ -2788,6 +2827,80 @@ impl SceneRenderer {
         self.awaiting_swap = true;
         self.last_size = [width, height];
         Ok(true)
+    }
+
+    /// Only the engine's current, unshared context can authorize replacement.
+    pub(crate) fn set_canvas_replacement_allowed(&mut self, allowed: bool) {
+        self.canvas_replacement_allowed = allowed;
+    }
+
+    fn late_canvas_replacement(&self, size: [i32; 2]) -> Option<usize> {
+        let [first, other] = self.full_frame.as_slice() else {
+            return None;
+        };
+        if !self.canvas_replacement_allowed
+            || first.texture.id == other.texture.id
+            || self
+                .full_frame
+                .iter()
+                .any(|f| [f.texture.width, f.texture.height] != size)
+        {
+            return None;
+        }
+        // Only switch once, at the last authored composite. Later passes
+        // must be able to use either canvas without writing its work slots.
+        let position = self.draw_order.iter().rposition(|object| {
+            matches!(*object, super::DrawObject::Image(i) if self.layers[i].composite.is_some())
+        })?;
+        let super::DrawObject::Image(index) = self.draw_order[position] else {
+            return None;
+        };
+        let layer = &self.layers[index];
+        let reads_full_frame = |layer: &GpuLayer| {
+            layer
+                .stages
+                .iter()
+                .flat_map(|stage| &stage.passes)
+                .flat_map(pass_reads)
+                .any(|binding| matches!(binding, TextureBinding::FullFrame))
+        };
+        let no_alias = |layer: &GpuLayer| {
+            let Some(scratch) = self
+                .scratch
+                .get(&(layer.size[0].ceil() as i32, layer.size[1].ceil() as i32))
+            else {
+                return false;
+            };
+            scratch
+                .iter()
+                .skip(layer.work_offset)
+                .chain(layer.stages.iter().flat_map(|stage| stage.targets.values()))
+                .all(|target| {
+                    target.texture.id != first.texture.id && target.texture.id != other.texture.id
+                })
+        };
+        if !layer.full_canvas_shader
+            || !matches!(layer.blend, Blend::Replace)
+            || self.hidden_script_layers.contains(&index)
+            || layer_matrix(self.canvas, layer, size[0], size[1]) != IDENTITY
+            || reads_full_frame(layer)
+            || !no_alias(layer)
+            || !self.draw_order[position + 1..].iter().all(|object| {
+                let super::DrawObject::Image(i) = *object else {
+                    return false;
+                };
+                let next = &self.layers[i];
+                if next.direct {
+                    !reads_full_frame(next)
+                } else {
+                    next.can_sample_current_frame() && no_alias(next)
+                }
+            })
+            || !allows_full_canvas_write()
+        {
+            return None;
+        }
+        Some(index)
     }
 
     /// The host must make this renderer's context current before calling this
@@ -2841,6 +2954,59 @@ impl SceneRenderer {
 impl Drop for SceneRenderer {
     fn drop(&mut self) {
         self.cleanup();
+    }
+}
+
+// Exact adapted built-in ColorMode 28 source. A modified or newer shader
+// keeps the snapshot unless its full replacement contract has been checked.
+fn full_canvas_shader(shader: &super::shader::Shader) -> bool {
+    use sha2::{Digest, Sha256};
+
+    fn matches(source: &str, expected: &str) -> bool {
+        format!("{:x}", Sha256::digest(source.as_bytes())) == expected
+    }
+    matches(
+        &shader.vertex,
+        "ec1ef479598e359be62be56fa1778c794acd12672e4ebdabf235946485f61d71",
+    ) && matches(
+        &shader.fragment,
+        "a81a20b1b281a652fc5c3dc4237679cdc6e8e2ef94c5dd27f6a6b3eea56e4cf2",
+    )
+}
+
+// The caller has already proved exclusive engine ownership. Check raster
+// states that could make the full quad leave pixels from the old target.
+fn allows_full_canvas_write() -> bool {
+    unsafe {
+        let (mut major, mut minor, mut profile, mut clips, mut samples, mut origin, mut depth) =
+            (0, 0, 0, 0, 0, 0, 0);
+        gl::GetIntegerv(gl::MAJOR_VERSION, &mut major);
+        gl::GetIntegerv(gl::MINOR_VERSION, &mut minor);
+        if (major, minor) < (4, 5) {
+            return false;
+        }
+        gl::GetIntegerv(gl::CONTEXT_PROFILE_MASK, &mut profile);
+        gl::GetIntegerv(gl::MAX_CLIP_DISTANCES, &mut clips);
+        gl::GetIntegerv(gl::SAMPLE_BUFFERS, &mut samples);
+        gl::GetIntegerv(gl::CLIP_ORIGIN, &mut origin);
+        gl::GetIntegerv(gl::CLIP_DEPTH_MODE, &mut depth);
+        // Alpha test and polygon stipple are compat-only enums and omitted
+        // from this crate's generated core bindings.
+        let compatibility = profile & gl::CONTEXT_COMPATIBILITY_PROFILE_BIT as i32 != 0;
+        let compatibility_suppression = compatibility
+            && [0x0BC0, 0x0B42]
+                .into_iter()
+                .any(|cap| gl::IsEnabled(cap) == gl::TRUE);
+        let supported_profile = compatibility || profile & gl::CONTEXT_CORE_PROFILE_BIT as i32 != 0;
+        supported_profile
+            && !compatibility_suppression
+            && samples == 0
+            && origin as u32 == gl::LOWER_LEFT
+            && depth as u32 == gl::NEGATIVE_ONE_TO_ONE
+            && (0..=32).contains(&clips)
+            && (0..clips as u32).all(|index| gl::IsEnabled(gl::CLIP_DISTANCE0 + index) == gl::FALSE)
+            && gl::IsEnabled(gl::COLOR_LOGIC_OP) == gl::FALSE
+            && gl::IsEnabled(gl::POLYGON_SMOOTH) == gl::FALSE
     }
 }
 
@@ -4037,6 +4203,7 @@ mod tests {
             blend: Blend::Alpha,
             stages: Vec::new(),
             composite: None,
+            full_canvas_shader: false,
         };
         assert_eq!(layer_matrix([1920.0, 1080.0], &layer, 1920, 1080), IDENTITY);
         let matrix = layer_matrix([1920.0, 1080.0], &layer, 1080, 1920);
