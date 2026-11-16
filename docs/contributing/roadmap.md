@@ -188,6 +188,28 @@ ColorMode 28 had about 2.46× CB0 write requests, 1.53× L0 requests in each of 
 
 The retained late-composite change swaps two existing canvas roles to avoid one snapshot at the last eligible authored composite. It requires exact expanded/adapted ColorMode 28 shader identities, an identity Replace draw, safe GL coverage, no read/write alias and engine-owned EGL never used by libmpv GL. Public/foreign paths and unmet guards keep the snapshot. The original shaders, resources/resolutions and 25 logical passes remain. An independent same-binary serial AMD A–B–B–A measured 32 successful frames per path, pooled completion median **40.439025 → 39.390805 ms (−2.59%)**; these timers do not establish native FPS. The production renderer matches eight output and 24 history hashes and unchanged budgets/zero cleanup within each of AMD and llvmpipe. Three focused GPU tests and 562 ordinary workspace tests passed (two doctests included, 43 ignored). Separate nested `niri` functional checks passed: the uninstrumented run animated, went idle while paused, resumed, replaced the paused Scene in one draw/swap, idled on static content, and cleared/joined. An instrumented Scene → Video → Scene roundtrip kept EGL generation 1 (89 Video and 71 restored Scene swaps), with 194 layer 8 replacements before libmpv's foreign-GL handoff and none after. This verifies fallback, not a native FPS gain or UI/package acceptance. See the [hardware-counter record](./guide.md#scene-hardware-counters-2026-11-16). Historical evidence remains unchanged; private diagnostic code/artifacts are not committed, and physical suspend/resume stays skipped.
 
+### Fixed Scene coverage baseline (2026-11-16)
+
+The original packages and default choices on `e6f3a00` prepared successfully for 4/11 initial items and 2/4 discovery items. These are local results from `scene_prepare` with the installed Wallpaper Engine assets. The two cohorts remain fixed and CPU preparation remains separate from rendered output and native desktop acceptance.
+
+| Preparation result | Workshop IDs |
+| --- | --- |
+| Ready, initial cohort | `3258032485`, `3337606455`, `3659880761`, `3420277613` |
+| Ready, discovery cohort | `2903458386`, `2228594093` |
+| Camera motion | `2798622011`, `3241857956` |
+| HDR | `2454418355` |
+| Script bindings | `3718622170`, `3143988185`, `3407827570` |
+| Custom property declarations | `3232289987` |
+| Authored object count | `3485147659`, `3578699777` |
+
+Re-run `scene_prepare PROJECT_DIR BUILTIN_ASSETS` for every ID after a compatibility change. Record each package hash, the first rejected feature, and independent dependencies found with the `inventory` example. Both object-count cases also need parent or attachment semantics and puppet rendering. The camera-motion cases also need additional effects, and the rejected clock wallpaper needs typed script properties, date/time and a bounded embedded-video texture path. Clearing one error counts as progress on that feature. Include original-package output checks before counting a new runnable scene.
+
+Use the six prepared scenes for shared rendering changes. They cover lightweight animation, layered effects and bloom, dynamic image layers, particles, and timed textures with history. Keep the rejected packages as coverage targets and test them on the same defaults. Prefer changes that improve multiple measured workloads or complete a reusable behavior on an original package. Preserve original effects, dimensions and resource ceilings.
+
+REA analysis of the installed `wallpaper64.exe` confirmed a dimension check before target rebuild at `0x14013f7b0`, a name lookup in the target path at `0x14017ab60`, and a per-pass parameter update gated by a dirty flag at `0x140135b7e`. These observations describe the shipped renderer code. The cost of these paths in a running Wallpaper Engine remains unmeasured.
+
+A LWE experiment skipped repeated resize setup when the target layout was already complete and kept resource checks. On Mesa 26.2.6, the six prepared originals ran in A–B–B–A order at 1920×1080 output with their authored canvases, default options and silent audio input. Each run measured 56 completed frames after eight warm-up frames. The last PNG for each project matched across runs. Submission time varied by project and GPU-synchronized frame time changed by −0.17% to +1.99% across the six projects. No consistent speedup was established, so the experiment was reverted.
+
 ### Work sequence and exit criteria
 
 The table retains full future acceptance targets; its physical suspend/resume target is explicitly deferred from the current batch. Bounded P0 inventory, the first P1 runtime/settings slices, restricted P2 camera and editable-property persistence, and the default mixed-project CPU/GPU path are implemented. Default and property-editor native UI flows, including real save failure/retry and a twelve-second owned fullscreen recovery, passed; broader lifecycle acceptance remains open. No complete stage or daily-use milestone is marked finished. Unsupported behaviors remain gated, and implemented paths still require their stated acceptance.
