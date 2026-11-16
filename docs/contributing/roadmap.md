@@ -246,7 +246,7 @@ The first timeline batch yielded six preparations and nine rejections across the
 
 The installed player adds the authored `scale` or `origin` base to each relative key when loading the track. It samples linked tracks using the root's clock, including its frame rate and paused state, and reads each track's own curve. A property-local `thisObject.getAnimation().play()` starts a paused track or restarts a completed single track. Repeated calls during playback preserve its progress. Only a call on the root controls the shared clock.
 
-LWE supports these behaviors for scripted image and planar text properties within the existing single-play subset. Relative origins retain their authored depth. Links stay on the same layer and resolve to a root track. The worker publishes the sampled values and script results together. Media callbacks and album-art textures remain gated pending a verified source and delivery path.
+LWE supports these behaviors for scripted image and planar text properties within the existing single-play subset. Relative origins retain their authored depth. Links stay on the same layer and resolve to a root track. The worker publishes the sampled values and script results together. That batch left media callbacks and album-art textures gated.
 
 All seven Disbelief Y tracks passed preparation in four isolated fixtures with the original timeline descriptors and pass-through updates. The complete package advances to an undeclared user property binding. The 15 originals still yield six preparations and nine rejections. All 72 hardware-offscreen frames and logical GPU charges match at 1920×1080. The linked fixture preserves both accepted scale and alpha during frozen resize and rollback replay, then advances both on resume. Physical suspend was skipped.
 
@@ -263,6 +263,14 @@ The installed player updates an indexed material texture for `$mediaThumbnail` a
 The Scene audio path supports MPEG-1 Layer III single-file loops. Preparation checks the encoded frames in the sealed clip, and the existing audio player selects the MP3 demuxer for that format. The authored `muteineditor` boolean is editor metadata. Sound count, byte and duration limits and the reversible playback path stay the same. Spatial sound and other playback modes remain gated.
 
 The 15 original packages retained six admitted and nine rejected results, and only Disbelief Y's first diagnostic changed to camera parallax. Both of its visibility inputs passed in isolated fixtures and still require media support for the original callbacks. Two original MP3 clips passed muted playback with a null output. The six admitted scenes matched all 72 prior hardware-offscreen frames and logical GPU charges at 1920×1080. Physical suspend was skipped.
+
+### Centered camera parallax and Linux media
+
+LWE supports immediate camera parallax on ordinary unparented planar images with an authored centered orthographic camera when the authored mouse influence and delay are both zero. The installed player computes the offset from the layer origin relative to the canvas center, multiplied by the scene amount and the layer's depth. Missing depth defaults to `[1, 1]`. The shader receives the centered `g_ParallaxPosition`. The installed niri session exposes focus-scoped pointer input. The wallpaper surface has an empty input region so it stays click-through. Active cursor-driven parallax and other camera and layer projections remain gated.
+
+Bounded SceneScript can receive `mediaPlaybackChanged` and `mediaPropertiesChanged` from a shared read-only MPRIS session-bus worker. It samples active services at 750 ms intervals and sends playback or track changes to the script worker before timeline sampling. The initial frame waits for an actual media snapshot, including no player present. Metadata is limited to track title, artist, album, album artist and genres. Thumbnail callbacks and current or previous album-art textures remain gated.
+
+An offscreen fixture verified the displaced quad and centered shader input. A private D-Bus player drove accepted script worker frames through playing, paused and player removal. Two exact Disbelief Y visibility callbacks and four timeline metadata callbacks passed isolated preparation. The full package still requires cursor-driven parallax. All 15 original diagnostic outcomes match the previous run, with all 72 hardware-offscreen frames and logical GPU charges unchanged at 1920×1080. Physical suspend was skipped.
 
 ### Work sequence and exit criteria
 
