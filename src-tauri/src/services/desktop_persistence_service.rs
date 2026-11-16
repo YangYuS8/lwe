@@ -286,10 +286,10 @@ fn valid_choice(value: &serde_json::Value) -> bool {
         serde_json::Value::Array(channels) => {
             channels.len() == 3 && channels.iter().all(normalized_channel)
         }
-        // The project declaration validates RGB syntax and combo membership
-        // before apply. Persistence only preserves a bounded literal string.
+        // The project declaration validates string values before apply.
+        // An empty string can clear a text field.
         serde_json::Value::String(value) => {
-            !value.is_empty() && value.len() <= MAX_PROPERTY_STRING_BYTES && !value.contains('\0')
+            value.len() <= MAX_PROPERTY_STRING_BYTES && !value.contains('\0')
         }
         _ => false,
     }
@@ -994,6 +994,28 @@ mod tests {
     }
 
     #[test]
+    fn literal_text_choices_round_trip_including_an_empty_value() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("session.toml");
+        let service = DesktopPersistenceService::for_path(path.clone());
+        let values = BTreeMap::from([
+            ("cleared".to_string(), json!("")),
+            ("caption".to_string(), json!(" 作者文字\n<caption> ")),
+            ("boundary".to_string(), json!("🌙".repeat(64))),
+        ]);
+        assert!(matches!(
+            service.save_assignment_with_properties("DISPLAY", "scene", &values),
+            DesktopPersistenceWrite::Saved
+        ));
+        assert_eq!(
+            DesktopPersistenceService::for_path(path)
+                .load_scene_properties("DISPLAY", "scene")
+                .unwrap(),
+            values
+        );
+    }
+
+    #[test]
     fn invalid_choices_or_serialized_size_keep_previous_session_bytes() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("session.toml");
@@ -1009,7 +1031,6 @@ mod tests {
             json!([0.5, 0.5]),
             json!([0.5, 0.5, 2.0]),
             json!([0.5, true, 1.0]),
-            json!(""),
             json!("x".repeat(super::MAX_PROPERTY_STRING_BYTES + 1)),
             json!("invalid\0choice"),
         ] {

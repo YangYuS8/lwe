@@ -172,6 +172,8 @@ export type SceneProperty = ScenePropertyControl & (
   | { kind: 'color'; value: [number, number, number] }
   | { kind: 'combo'; value: string; options: { label: string; value: string }[] }
   | { kind: 'texture'; value: string | null }
+  | { kind: 'text_display'; value: null }
+  | { kind: 'text_input'; value: string }
 );
 
 export interface ImportedSceneImage {

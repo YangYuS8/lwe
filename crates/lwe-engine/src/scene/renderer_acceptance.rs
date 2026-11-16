@@ -602,3 +602,90 @@ fn original_space_layers_effects_properties_and_paused_frames() -> Result<()> {
     instance.terminate(display)?;
     result
 }
+
+#[test]
+#[ignore = "requires an installed Wallpaper Engine font and explicit offscreen EGL"]
+fn original_font_text_input_and_script_options_match_literal_frames() -> Result<()> {
+    use super::super::tests::Fixture;
+
+    let assets = PathBuf::from(
+        std::env::var_os("LWE_SCENE_TEST_ASSETS").context("Set LWE_SCENE_TEST_ASSETS")?,
+    );
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.0.join("project.json"),
+        br#"{"type":"scene","file":"scene.json","general":{"properties":{
+            "caption":{"type":"textinput","value":"A"},
+            "help":{"type":"text","text":"Caption information","value":""}
+        }}}"#,
+    )?;
+    let script = r#"
+        export var scriptProperties = createScriptProperties()
+            .addText({name:"separator",label:"Separator",value:"/"})
+            .addCombo({name:"format",label:"Format",options:[
+                {label:"First",value:"1"},{label:"Second",value:"2"}
+            ]})
+            .finish();
+        export function update(value) {
+            return value === "" ? "" : value + scriptProperties.separator + scriptProperties.format;
+        }
+    "#;
+    let object = |text| {
+        json!([{
+            "text":text,"origin":"8 8 0","size":"16 16",
+            "font":"fonts/Atami-Regular.otf","pointsize":8,
+            "horizontalalign":"center","verticalalign":"center"
+        }])
+    };
+    let binding = json!({
+        "user":"caption","value":"Fallback","script":script,
+        "scriptproperties":{"separator":""}
+    });
+    let _context = super::sharing_tests::Offscreen::new()?;
+    let target = RenderTarget::new(16, 16)?;
+    let draw = |scene: &PreparedScene| -> Result<Vec<u8>> {
+        let mut renderer = scene.initialize()?;
+        bind_target(&target);
+        let timeout = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !renderer.render(16, 16, 0.)? {
+            ensure!(
+                std::time::Instant::now() < timeout,
+                "Scene text frame not ready"
+            );
+            std::thread::sleep(std::time::Duration::from_micros(200));
+        }
+        renderer.report_presented();
+        pixels(&target)
+    };
+    let mut frames = Vec::new();
+    for (override_value, expected_text) in [(None, "A1"), (Some("B"), "B1"), (Some(""), "")] {
+        fixture.scene(object(binding.clone()));
+        let overrides = override_value
+            .map(|value| BTreeMap::from([("caption".to_owned(), json!(value))]))
+            .unwrap_or_default();
+        let prepared =
+            PreparedScene::prepare_with_properties(&fixture.0, Some(&assets), &overrides)?;
+        let actual = draw(&prepared)?;
+
+        fixture.scene(object(json!(expected_text)));
+        let literal = PreparedScene::prepare(&fixture.0, Some(&assets))?;
+        assert_eq!(actual, draw(&literal)?);
+        frames.push(actual);
+    }
+    assert_ne!(frames[0], frames[1]);
+    assert!(
+        frames[0]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[0] != 0)
+    );
+    assert!(
+        frames[2]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[..3] == [0; 3])
+    );
+    Ok(())
+}

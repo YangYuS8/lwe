@@ -391,7 +391,11 @@ fn extract_runtime_bindings(
             let value = match property.value {
                 PropertyValue::Bool(value) => script::ScalarProperty::Bool(value),
                 PropertyValue::Slider(value) => script::ScalarProperty::Number(value),
-                PropertyValue::Color(_) | PropertyValue::Combo(_) | PropertyValue::Texture(_) => {
+                PropertyValue::Color(_)
+                | PropertyValue::Combo(_)
+                | PropertyValue::TextInput(_)
+                | PropertyValue::TextDisplay
+                | PropertyValue::Texture(_) => {
                     return None;
                 }
             };
@@ -1725,7 +1729,7 @@ impl PreparedScene {
         let mut scene: Value = serde_json::from_slice(&assets.read(scene_file, MAX_JSON)?)
             .context("Invalid Scene entry JSON")?;
         let mut bindings = extract_runtime_bindings(&mut scene, &project)?;
-        properties.resolve_document(&mut scene)?;
+        properties.resolve_scene_document(&mut scene)?;
         if has_script(&scene) {
             return Err(unsupported("scenescript", "scene contains script bindings"));
         }
@@ -1847,7 +1851,12 @@ impl PreparedScene {
                 .collect::<Result<Vec<_>>>()?;
             let snapshot = property_definitions(&project)?
                 .into_iter()
-                .filter(|property| property.kind != PropertyKind::Texture)
+                .filter(|property| {
+                    !matches!(
+                        property.kind,
+                        PropertyKind::Texture | PropertyKind::TextInput | PropertyKind::TextDisplay
+                    )
+                })
                 .map(|property| Ok((property.name, serde_json::to_value(property.value)?)))
                 .collect::<Result<serde_json::Map<_, _>>>()?;
             Some(Arc::new(dynamic_script::PreparedScripts::prepare(

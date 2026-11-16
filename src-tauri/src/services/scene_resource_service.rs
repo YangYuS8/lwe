@@ -77,14 +77,20 @@ impl SceneResourceService {
                 .iter()
                 .find(|p| p.name == *name)
                 .ok_or("Scene selection has no declared property")?;
-            if definition.kind == PropertyKind::Texture {
-                let token = value
-                    .as_str()
-                    .filter(|v| valid_token(v))
-                    .ok_or("Invalid Scene image selection")?;
-                images.insert(name.clone(), ImageStore::new(data_root()?).resolve(token)?);
-            } else {
-                scalars.insert(name.clone(), value.clone());
+            match definition.kind {
+                PropertyKind::Texture => {
+                    let token = value
+                        .as_str()
+                        .filter(|v| valid_token(v))
+                        .ok_or("Invalid Scene image selection")?;
+                    images.insert(name.clone(), ImageStore::new(data_root()?).resolve(token)?);
+                }
+                PropertyKind::TextDisplay => {
+                    return Err("Scene selection cannot change a read-only property".into());
+                }
+                _ => {
+                    scalars.insert(name.clone(), value.clone());
+                }
             }
         }
         Ok((scalars, images))
@@ -270,6 +276,7 @@ impl ImageStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::io::Cursor;
     fn png() -> Vec<u8> {
         let mut bytes = Cursor::new(Vec::new());
@@ -278,6 +285,26 @@ mod tests {
             .unwrap();
         bytes.into_inner()
     }
+    #[test]
+    fn text_inputs_stay_literal_and_display_metadata_cannot_be_submitted() {
+        let project = json!({"general": {"properties": {
+            "help": {"type": "text", "text": "Read me", "value": ""},
+            "message": {"type": "textinput", "text": "Message", "value": "Author caption"}
+        }}});
+        for value in [json!(""), json!("sha256:".to_string() + &"a".repeat(64))] {
+            let choices = BTreeMap::from([("message".to_string(), value)]);
+            let (scalars, images) =
+                SceneResourceService::split_choices(&project, &choices).unwrap();
+            assert_eq!(scalars, choices);
+            assert!(images.is_empty());
+        }
+        let choices = BTreeMap::from([("help".to_string(), json!(""))]);
+        let error = SceneResourceService::split_choices(&project, &choices)
+            .err()
+            .unwrap();
+        assert!(error.contains("read-only"));
+    }
+
     #[test]
     fn imported_content_survives_source_removal_and_detects_store_tampering() {
         let temp = tempfile::tempdir().unwrap();

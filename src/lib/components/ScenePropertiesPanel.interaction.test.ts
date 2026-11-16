@@ -43,6 +43,15 @@ const imageFixture = (monitorId = 'DP-1'): ScenePropertiesSnapshot => ({
     min: null, max: null, step: null, order: 3
   }]
 });
+const authorNote = '<img src="https://example.invalid/banner.png">\n<a href="https://example.invalid">Author note</a>';
+const textFixture = (): ScenePropertiesSnapshot => ({
+  ...fixture(), properties: [...fixture().properties,
+    { name: 'note', label: authorNote, kind: 'text_display', value: null, min: null, max: null, step: null, order: 3 },
+    { name: 'caption', label: 'Author caption', kind: 'text_input', value: 'Default caption',
+      min: null, max: null, step: null, order: 4 }
+  ],
+  groups: [{ name: 'text', label: 'Author text', order: 2.5, members: ['note', 'caption'] }]
+});
 let panel: Awaited<ReturnType<typeof mountPanel>> | undefined;
 
 async function mountPanel(disabled = false) {
@@ -79,6 +88,50 @@ const edit = async (type: string, value: string) => {
 };
 
 describe('ScenePropertiesPanel interactions', () => {
+  it('renders author display text inertly and saves literal captions including an empty value', async () => {
+    vi.mocked(ipc.loadSceneProperties).mockResolvedValue(textFixture());
+    vi.mocked(ipc.updateSceneProperties).mockResolvedValue(outcome({ ok: false, message: 'Preparation rejected' }));
+    panel = await mountPanel(); await open();
+    const group = panel.target.querySelector('[data-scene-property-group="text"]')!;
+    const caption = group.querySelector('textarea')!;
+    expect(group.textContent).toContain(authorNote);
+    expect(group.querySelector('img, a')).toBeNull();
+    expect(group.querySelector(`label[for="${caption.id}"]`)?.textContent).toBe('Author caption');
+    expect(caption.value).toBe('Default caption');
+    const text = ' 你好\n<caption> ';
+    for (const value of [text, '']) {
+      caption.value = value;
+      caption.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick();
+      button(panel.target, 'Save and apply').click();
+      await waitForText(panel.target, 'Preparation rejected');
+      expect(ipc.updateSceneProperties).toHaveBeenLastCalledWith('DP-1', 'scene-1', {
+        hdr: true, strength: 1.5, tint: [0.25, 0.5, 1], caption: value
+      });
+      expect(caption.value).toBe(value);
+    }
+    expect(ipc.updateSceneProperties).toHaveBeenCalledTimes(2);
+  });
+
+  it('enforces UTF-8 byte and line limits for text drafts and rejects control characters', async () => {
+    vi.mocked(ipc.loadSceneProperties).mockResolvedValue(textFixture());
+    panel = await mountPanel(); await open();
+    const caption = panel.target.querySelector('textarea')!;
+    for (const value of ['🌙'.repeat(65), '\n'.repeat(8), 'text\u0085']) {
+      caption.value = value;
+      caption.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick();
+      expect(caption.getAttribute('aria-invalid')).toBe('true');
+      expect(button(panel.target, 'Save and apply').disabled).toBe(true);
+    }
+    caption.value = '🌙'.repeat(62) + '\n'.repeat(7) + '!';
+    caption.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    expect(caption.getAttribute('aria-invalid')).toBe('false');
+    expect(button(panel.target, 'Save and apply').disabled).toBe(false);
+    expect(ipc.updateSceneProperties).not.toHaveBeenCalled();
+  });
+
   it('imports an image into the draft, preserves it on cancellation and failed save, and clears back to the author default', async () => {
     vi.mocked(ipc.loadSceneProperties).mockResolvedValue(imageFixture());
     vi.mocked(ipc.chooseSceneImage).mockResolvedValueOnce({ token: imageToken, width: 3840, height: 2160 }).mockResolvedValueOnce(null);
@@ -244,17 +297,19 @@ describe('ScenePropertiesPanel interactions', () => {
     expect(ipc.updateSceneProperties).not.toHaveBeenCalled();
   });
 
-  it('renders non-value-only groups without offering an empty save', async () => {
-    const snapshot = groupedFixture();
-    snapshot.properties = [];
-    snapshot.groups = [snapshot.groups[1]];
+  it.each([false, true])('renders non-value-only groups without offering an empty save (display text: %s)', async (displayText) => {
+    const snapshot = textFixture();
+    snapshot.properties = displayText ? snapshot.properties.filter((property) => property.kind === 'text_display') : [];
+    snapshot.groups = [{ ...snapshot.groups[0], label: '', members: displayText ? ['note'] : [] }];
     vi.mocked(ipc.loadSceneProperties).mockResolvedValue(snapshot);
     panel = await mountPanel();
     button(panel.target, 'Scene properties').click();
     await waitForText(panel.target, 'Property group 1');
+    if (displayText) expect(panel.target.textContent).toContain(authorNote);
     expect(panel.target.textContent).toContain('This scene has no supported editable properties');
     expect(panel.target.textContent).not.toContain('Save and apply');
-    expect(panel.target.querySelector('input')).toBeNull();
+    expect(panel.target.textContent).not.toContain('Reset defaults');
+    expect(panel.target.querySelector('input, textarea')).toBeNull();
   });
 
   it('edits author combo options as strings and preserves the selection after a failed save', async () => {

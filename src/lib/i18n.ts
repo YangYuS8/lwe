@@ -314,7 +314,8 @@ const dictionaries = {
         importingImage: 'Importing image…',
         invalidImage: 'Invalid image selection.',
         imageFormats: 'Static 8-bit PNG or JPEG without a color profile, up to 32 MiB. Save and apply to use the selected image.',
-        invalidValues: 'Enter valid values within the declared limits and options.'
+        invalidValues: 'Enter valid values within the declared limits and options.',
+        textInputLimit: 'Use up to 256 UTF-8 bytes and eight lines. Line breaks are the only allowed control characters.'
       },
       libraryDetail: {
         title: 'Library detail',
@@ -696,7 +697,8 @@ const dictionaries = {
         importingImage: '正在导入图片…',
         invalidImage: '图片选择无效。',
         imageFormats: '支持不含色彩配置的静态 8 位 PNG 或 JPEG，最大 32 MiB。保存并应用后使用所选图片。',
-        invalidValues: '请输入声明范围内的有效值，并选择声明的选项。'
+        invalidValues: '请输入声明范围内的有效值，并选择声明的选项。',
+        textInputLimit: '最多输入 256 个 UTF-8 字节和 8 行。控制字符只允许换行。'
       },
       libraryDetail: {
         title: '内容详情',
