@@ -108,6 +108,7 @@ fn fixture(timed: bool, scripted: bool) -> Result<PreparedScene> {
                 source: "const audio=engine.registerAudioBuffers(64);let count=0;export function update(){count+=1;return new Vec3(audio.average[0],engine.runtime,Math.min(count/10,1));}".into(),
                 input: serde_json::json!([1., 1., 1.]),
                 script_properties: serde_json::json!({}),
+                timeline: None,
             }],
             vec![LayerState {
                 handle: 1,
@@ -176,6 +177,69 @@ fn ahead(renderer: &mut SceneRenderer, time: f64, timed: bool) -> Result<()> {
         renderer.prepare_ahead(time, timed)?;
         Ok(renderer.packet.is_some() && (!timed || renderer.job_requested))
     })
+}
+
+#[test]
+#[ignore = "requires opt-in surfaceless EGL; no desktop backend"]
+fn mixed_alpha_replays_accepted_pixels_before_next_timeline_sample() -> Result<()> {
+    use super::super::tests::{Fixture, timeline_alpha};
+    use serde_json::json;
+
+    let fixture = Fixture::new();
+    fixture.scene(json!([{
+        "image":"models/image.json", "size":"16 16", "origin":"8 8 0",
+        "alpha":timeline_alpha()
+    }]));
+    let scene = PreparedScene::prepare(&fixture.0, None)?;
+    let _context = super::sharing_tests::Offscreen::new()?;
+    let pool = TexturePool::new()?;
+    let mut renderer = SceneRenderer::initialize_shared(&scene, Rc::clone(&pool))?;
+    let initial = draw(&mut renderer, 4, 0., false)?;
+    let (initial_pixels, _) = initial.as_chunks::<4>();
+    renderer.update(0.)?;
+    assert_eq!(renderer.layers[0].tint[3], 0.125);
+    assert!(
+        initial_pixels
+            .iter()
+            .all(|pixel| pixel[0].abs_diff(32) <= 1)
+    );
+
+    ahead(&mut renderer, 0.25, false)?;
+    let pending = renderer
+        .packet
+        .clone()
+        .context("missing mixed alpha packet")?;
+    assert_eq!(
+        (pending.seq, pending.time, pending.states[0].alpha),
+        (1, 0.25, 0.375)
+    );
+    renderer.freeze_for_rollback()?;
+    renderer.thaw(true);
+    let replay = draw(&mut renderer, 8, 0.5, true)?;
+    assert_eq!(renderer.accepted_seq, 0);
+    assert_eq!(renderer.packet.as_ref(), Some(&pending));
+    assert!(
+        replay
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == initial_pixels[0])
+    );
+
+    renderer.resume();
+    let resumed = draw(&mut renderer, 8, 0.75, false)?;
+    assert_eq!((renderer.accepted_seq, renderer.accepted_time), (1, 0.25));
+    assert_eq!(renderer.layers[0].tint[3], 0.375);
+    assert!(
+        resumed
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[0].abs_diff(96) <= 1)
+    );
+    renderer.cleanup();
+    pool.drain_retired()?;
+    Ok(())
 }
 
 fn audio() -> super::super::spectrum::SpectrumSnapshot {
@@ -420,6 +484,7 @@ fn frozen_timed_hierarchy_replays_accepted_pose_and_history_before_pending_epoch
             source: "let n=0;export function update(){n+=1;return new Vec3(n===1?1:3,2,0);}".into(),
             input: json!([1., 2., 0.]),
             script_properties: json!({}),
+            timeline: None,
         }],
         vec![state(1, [0.; 3]), state(2, [1., 2., 0.])],
         json!({}),

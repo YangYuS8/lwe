@@ -558,7 +558,7 @@ fn pending_vm_and_shader_use_one_audio_snapshot_and_direct_base_preserves_pixels
         visible: true,
         text: None,
     };
-    scene.scripts=Some(super::super::dynamic_script::PreparedScripts::prepare(vec![super::super::dynamic_script::Binding {layer:1,property:"color".into(),source:"const audio=engine.registerAudioBuffers(64);export function update(){return new Vec3(audio.average[0],1,1);}".into(),input:serde_json::json!([1.,1.,1.]),script_properties:serde_json::json!({})}],vec![state],serde_json::json!({}))?.into());
+    scene.scripts=Some(super::super::dynamic_script::PreparedScripts::prepare(vec![super::super::dynamic_script::Binding {layer:1,property:"color".into(),source:"const audio=engine.registerAudioBuffers(64);export function update(){return new Vec3(audio.average[0],1,1);}".into(),input:serde_json::json!([1.,1.,1.]),script_properties:serde_json::json!({}),timeline:None}],vec![state],serde_json::json!({}))?.into());
     scene.script_layers.insert(1, 0);
     let mut renderer = SceneRenderer::initialize_shared(&scene, Rc::clone(&pool))?;
     draw(&mut renderer, &output, 0., false)?;
