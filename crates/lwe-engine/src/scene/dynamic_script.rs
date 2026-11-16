@@ -22,7 +22,7 @@ use rquickjs::{Context, Function, Module, Object, Persistent, Runtime};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::unsupported;
+use super::{property_timeline::ScalarTimeline, unsupported};
 
 pub(super) const MAX_DYNAMIC_LAYERS: usize = 128;
 const MAX_BINDINGS: usize = 32;
@@ -54,6 +54,7 @@ pub(super) struct Binding {
     pub source: String,
     pub input: Value,
     pub script_properties: Value,
+    pub timeline: Option<ScalarTimeline>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -1438,6 +1439,17 @@ impl Vm {
             let owner: Function = host.get("owner")?;
             let input: Function = host.get("input")?;
             let output: Function = host.get("output")?;
+            // The authored timeline pass precedes every SceneScript update,
+            // including callbacks on other properties of the same layer.
+            for binding in &self.bindings {
+                if let Some(timeline) = &binding.timeline {
+                    output.call::<_, ()>((
+                        binding.layer,
+                        binding.property.as_str(),
+                        timeline.sample(time),
+                    ))?;
+                }
+            }
             for (module, binding) in self.modules.iter().zip(&self.bindings) {
                 owner.call::<_, ()>((binding.layer,))?;
                 let module = module.clone().restore(&ctx)?;
@@ -1805,10 +1817,32 @@ mod tests {
                 source: source.to_owned(),
                 input: Value::Bool(true),
                 script_properties: serde_json::json!({}),
+                timeline: None,
             }],
             vec![layer()],
             serde_json::json!({"mode":"meter"}),
         )
+    }
+
+    #[test]
+    fn mixed_timeline_samples_before_any_binding_update() {
+        let author = super::super::tests::timeline_alpha();
+        let mut plan = prepare("export function update(){return thisLayer.alpha > 0.5;}").unwrap();
+        plan.bindings.push(Binding {
+            layer: 7,
+            property: "alpha".into(),
+            source: "let base; export function init(value){base=value;} export function update(value){return value*base*0.5;}".into(),
+            input: author["value"].clone(),
+            script_properties: serde_json::json!({}),
+            timeline: Some(ScalarTimeline::parse(&author["animation"]).unwrap()),
+        });
+        let (mut vm, _) = Vm::new(&plan, Arc::new(AtomicBool::new(false))).unwrap();
+        let initial = vm.frame(0., [0.; 64]).unwrap();
+        assert!(!initial[0].visible);
+        assert_eq!(initial[0].alpha, 0.125);
+        let next = vm.frame(0.25, [0.; 64]).unwrap();
+        assert!(next[0].visible);
+        assert_eq!(next[0].alpha, 0.375);
     }
 
     // Independent author fixture: do not copy a user-owned package's scripts
@@ -2002,6 +2036,7 @@ mod tests {
                 source: source.to_owned(),
                 input,
                 script_properties: overrides,
+                timeline: None,
             }],
             vec![owner],
             serde_json::json!({}),
@@ -2299,6 +2334,7 @@ mod tests {
                 source,
                 input: wrapper["value"].clone(),
                 script_properties: wrapper["scriptproperties"].clone(),
+                timeline: None,
             });
             states.push(state);
         }

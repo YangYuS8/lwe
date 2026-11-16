@@ -10,6 +10,7 @@ mod particles;
 mod postprocess;
 mod prepared_source;
 mod properties;
+mod property_timeline;
 mod renderer;
 mod script;
 mod shader;
@@ -384,6 +385,7 @@ fn has_script(value: &Value) -> bool {
 fn extract_runtime_bindings(
     scene: &mut Value,
     project: &Value,
+    properties: &ProjectProperties<'_>,
 ) -> Result<Vec<dynamic_script::Binding>> {
     let scalar_properties: script::PropertySnapshot = property_definitions(project)?
         .into_iter()
@@ -432,7 +434,9 @@ fn extract_runtime_bindings(
             let input = wrapper
                 .get("value")
                 .ok_or_else(|| unsupported("scenescript", "script binding has no input value"))?;
-            if let Some(number) = input.as_f64()
+            let animation = wrapper.get("animation");
+            if animation.is_none()
+                && let Some(number) = input.as_f64()
                 && script::evaluate(source, number, &scalar_properties).is_ok()
             {
                 continue;
@@ -446,7 +450,7 @@ fn extract_runtime_bindings(
                 || wrapper.keys().any(|key| {
                     !matches!(
                         key.as_str(),
-                        "script" | "value" | "user" | "scriptproperties"
+                        "script" | "value" | "user" | "scriptproperties" | "animation"
                     )
                 })
             {
@@ -455,6 +459,18 @@ fn extract_runtime_bindings(
                     "runtime scripts require a modeled image-layer property",
                 ));
             }
+            let timeline = animation
+                .map(|animation| {
+                    if !image || text || property != "alpha" || wrapper.contains_key("user") {
+                        return Err(unsupported(
+                            "timeline",
+                            "mixed timelines require an image layer alpha binding",
+                        ));
+                    }
+                    properties.validate_timeline(animation)?;
+                    property_timeline::ScalarTimeline::parse(animation)
+                })
+                .transpose()?;
             bindings.push(dynamic_script::Binding {
                 layer: index + 1,
                 property: property.clone(),
@@ -464,9 +480,11 @@ fn extract_runtime_bindings(
                     .get("scriptproperties")
                     .cloned()
                     .unwrap_or_else(|| serde_json::json!({})),
+                timeline,
             });
             wrapper.remove("script");
             wrapper.remove("scriptproperties");
+            wrapper.remove("animation");
             if !wrapper.contains_key("user") {
                 *value = wrapper.remove("value").expect("script input checked");
             }
@@ -1728,7 +1746,7 @@ impl PreparedScene {
         let properties = ProjectProperties::from_project(&project)?;
         let mut scene: Value = serde_json::from_slice(&assets.read(scene_file, MAX_JSON)?)
             .context("Invalid Scene entry JSON")?;
-        let mut bindings = extract_runtime_bindings(&mut scene, &project)?;
+        let mut bindings = extract_runtime_bindings(&mut scene, &project, &properties)?;
         properties.resolve_scene_document(&mut scene)?;
         if has_script(&scene) {
             return Err(unsupported("scenescript", "scene contains script bindings"));
@@ -2546,6 +2564,39 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    pub(super) fn timeline_alpha() -> Value {
+        serde_json::json!({
+            "value": 1,
+            "script": "export function update(value){return value * 0.5;}",
+            "animation": {
+                "options": {"fps":4,"length":4,"mode":"single","wraploop":null},
+                "c0": [{"frame":0,"value":0.25},{"frame":1,"value":0.75}]
+            }
+        })
+    }
+
+    #[test]
+    fn prepares_mixed_alpha_and_rejects_unmodeled_property_timelines() {
+        let fixture = Fixture::new();
+        let mut alpha = timeline_alpha();
+        fixture.scene(serde_json::json!([{"image":"models/image.json","alpha":alpha}]));
+        let prepared = PreparedScene::prepare(&fixture.0, None).unwrap();
+        assert!(prepared.summary().animated);
+        assert_eq!(
+            prepared.scripts.as_ref().unwrap().initial_states()[0].alpha,
+            0.125
+        );
+
+        fixture.scene(serde_json::json!([{"image":"models/image.json","scale":alpha}]));
+        let error = PreparedScene::prepare(&fixture.0, None).unwrap_err();
+        assert_eq!(unsupported_feature_code(&error), Some("timeline"));
+
+        alpha.as_object_mut().unwrap().remove("script");
+        fixture.scene(serde_json::json!([{"image":"models/image.json","alpha":alpha}]));
+        let error = PreparedScene::prepare(&fixture.0, None).unwrap_err();
+        assert_eq!(unsupported_feature_code(&error), Some("timeline"));
     }
 
     #[test]

@@ -346,6 +346,11 @@ impl<'a> ProjectProperties<'a> {
         self.resolve(document, false)
     }
 
+    pub(super) fn validate_timeline(&self, timeline: &Value) -> Result<()> {
+        // The modeled timeline is extracted before the shared resource walk.
+        validate_document(timeline, 0, &self.remaining_nodes, None)
+    }
+
     pub(super) fn resolve_scene_document(&self, document: &mut Value) -> Result<()> {
         validate_document(document, 0, &self.remaining_nodes, Some(self))?;
         // Only the direct content of a Scene text object can consume user text.
@@ -543,6 +548,15 @@ fn validate_document(
     nodes.set(remaining - 1);
     match value {
         Value::Object(object) => {
+            if properties.is_some()
+                && object.contains_key("value")
+                && object.contains_key("animation")
+            {
+                return Err(unsupported(
+                    "timeline",
+                    "unsupported property timeline binding",
+                ));
+            }
             if object
                 .keys()
                 .any(|key| matches!(key.to_ascii_lowercase().as_str(), "script" | "scenescript"))
