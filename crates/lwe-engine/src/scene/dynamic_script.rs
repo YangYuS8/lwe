@@ -22,7 +22,10 @@ use rquickjs::{Context, Function, Module, Object, Persistent, Runtime};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{property_timeline::ScalarTimeline, unsupported};
+use super::{
+    property_timeline::{PropertyTimeline, Sample},
+    unsupported,
+};
 
 pub(super) const MAX_DYNAMIC_LAYERS: usize = 128;
 const MAX_BINDINGS: usize = 32;
@@ -54,7 +57,7 @@ pub(super) struct Binding {
     pub source: String,
     pub input: Value,
     pub script_properties: Value,
-    pub timeline: Option<ScalarTimeline>,
+    pub timeline: Option<PropertyTimeline>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -66,6 +69,7 @@ pub(super) struct CreatedLayer {
 #[derive(Debug, Clone)]
 pub(super) struct PreparedScripts {
     bindings: Vec<Binding>,
+    timeline_owners: Vec<Option<usize>>,
     layers: Vec<LayerState>,
     properties: Value,
     created: Vec<CreatedLayer>,
@@ -75,6 +79,47 @@ pub(super) struct PreparedScripts {
 
 fn blocked(detail: impl Into<String>) -> anyhow::Error {
     unsupported("scenescript", detail)
+}
+
+fn timeline_owners(bindings: &[Binding]) -> Result<Vec<Option<usize>>> {
+    let invalid = |detail| unsupported("timeline", detail);
+    bindings
+        .iter()
+        .enumerate()
+        .map(|(index, binding)| {
+            let Some(track) = &binding.timeline else {
+                return Ok(None);
+            };
+            for child in &track.children {
+                ensure!(
+                    bindings.iter().any(|peer| {
+                        peer.layer == binding.layer
+                            && peer.property == *child
+                            && peer
+                                .timeline
+                                .as_ref()
+                                .and_then(|track| track.parent.as_deref())
+                                == Some(binding.property.as_str())
+                    }),
+                    invalid("timeline child does not link back to its owner")
+                );
+            }
+            let Some(parent) = &track.parent else {
+                return Ok(Some(index));
+            };
+            let owner = bindings.iter().position(|peer| {
+                peer.layer == binding.layer
+                    && peer.property == *parent
+                    && peer
+                        .timeline
+                        .as_ref()
+                        .is_some_and(|track| track.parent.is_none())
+            });
+            Ok(Some(owner.ok_or_else(|| {
+                invalid("linked timeline requires a root track on the same layer")
+            })?))
+        })
+        .collect()
 }
 
 impl PreparedScripts {
@@ -158,9 +203,14 @@ impl PreparedScripts {
                     "dynamic script sources exceed their combined budget",
                 ));
             }
-            validate_source(&binding.source, properties_map.keys().cloned().collect())?;
+            validate_source(
+                &binding.source,
+                properties_map.keys().cloned().collect(),
+                binding.timeline.is_some(),
+            )?;
         }
         let mut prepared = Self {
+            timeline_owners: timeline_owners(&bindings)?,
             bindings,
             layers,
             properties,
@@ -248,7 +298,7 @@ fn safe_name(name: &str) -> bool {
 // This is a source-language gate, not a JavaScript translator. QuickJS executes
 // the original module. New syntax or host capabilities must be admitted here
 // deliberately, rather than surviving preparation as an ignored property.
-fn validate_source(source: &str, properties: BTreeSet<String>) -> Result<()> {
+fn validate_source(source: &str, properties: BTreeSet<String>, has_timeline: bool) -> Result<()> {
     if source.is_empty()
         || source.len() > MAX_SOURCE_BYTES
         || source
@@ -274,6 +324,7 @@ fn validate_source(source: &str, properties: BTreeSet<String>) -> Result<()> {
         audio_names: BTreeSet::new(),
         non_audio_names: BTreeSet::new(),
         declaring_builder: false,
+        playback_callback: false,
     };
     let mut callbacks = BTreeSet::new();
     for statement in &parsed.program.body {
@@ -382,9 +433,11 @@ fn validate_source(source: &str, properties: BTreeSet<String>) -> Result<()> {
                 let Some(Declaration::FunctionDeclaration(function)) = &export.declaration else {
                     unreachable!("declarations validated above")
                 };
+                validation.playback_callback = has_timeline;
                 for statement in &function.body.as_ref().expect("checked body").statements {
                     validation.statement(statement, 0)?;
                 }
+                validation.playback_callback = false;
             }
             _ => unreachable!("module statements validated above"),
         }
@@ -402,6 +455,7 @@ struct Validation {
     audio_names: BTreeSet<String>,
     non_audio_names: BTreeSet<String>,
     declaring_builder: bool,
+    playback_callback: bool,
 }
 
 fn literal_script_metadata(expression: &Expression<'_>, depth: usize) -> bool {
@@ -548,6 +602,7 @@ impl Validation {
                 "engine"
                     | "thisScene"
                     | "thisLayer"
+                    | "thisObject"
                     | "Vec3"
                     | "Math"
                     | "undefined"
@@ -973,6 +1028,18 @@ impl Validation {
                     ));
                 };
                 let method = member.property.name.as_str();
+                if self.playback_callback
+                    && method == "play"
+                    && !member.optional
+                    && call.arguments.is_empty()
+                    && matches!(&member.object, Expression::CallExpression(getter)
+                        if !getter.optional && getter.arguments.is_empty()
+                            && matches!(&getter.callee, Expression::StaticMemberExpression(member)
+                                if !member.optional && member.property.name == "getAnimation"
+                                    && matches!(&member.object, Expression::Identifier(id) if id.name == "thisObject")))
+                {
+                    return Ok(());
+                }
                 let string_builder =
                     self.declaring_builder && matches!(method, "addText" | "addCombo");
                 if string_builder
@@ -1124,6 +1191,7 @@ const HOST: &str = r#"
     let usesAudio = false;
     let registration = false;
     let runtimeTime=0, frameTime=0;
+    let canPlay=false, playRequested=false;
     let scriptOverrides={}, builderFinished=false, builderCount=0;
     const audioBuffers = new Map();
     for (const count of [16,64]) {
@@ -1242,13 +1310,21 @@ const HOST: &str = r#"
     Object.defineProperty(globalThis, 'Vec3', {value: Vec3});
     Object.defineProperty(globalThis, 'engine', {value: engine});
     Object.defineProperty(globalThis, 'thisScene', {value: thisScene});
+    const animation = Object.freeze({play: () => {
+        if (!canPlay) throw new TypeError('no property timeline');
+        playRequested = true;
+    }});
+    Object.defineProperty(globalThis, 'thisObject', {value: Object.freeze({getAnimation: () => animation})});
     return Object.freeze({
         load: values => { for (const state of values) makeLayer(state); },
-        owner: handle => {
+        owner: (handle, playable) => {
             const item = layers.get(handle);
             if (!item) throw new TypeError('unknown script owner layer');
             globalThis.thisLayer = item.layer;
+            canPlay = playable;
+            playRequested = false;
         },
+        playRequested: () => playRequested,
         initialize: value => { initializing = value; },
         configure: values => { scriptOverrides=values; builderFinished=false; },
         register: value => { registration = value; },
@@ -1263,6 +1339,9 @@ const HOST: &str = r#"
             }
         },
         input: (handle, property) => layers.get(handle).layer[property],
+        timelineVector: (handle, property, x, y, z) => {
+            layers.get(handle).layer[property] = new Vec3(x,y,z);
+        },
         properties: values => {
             for (const key of Object.keys(values)) {
                 if (Array.isArray(values[key])) values[key] = copy(values[key]);
@@ -1292,6 +1371,8 @@ struct Vm {
     _runtime: Runtime,
     deadline: Rc<Cell<Instant>>,
     bindings: Vec<Binding>,
+    timeline_owners: Vec<Option<usize>>,
+    timeline_starts: Vec<Option<f64>>,
     base_handles: BTreeSet<usize>,
     last_time: f64,
 }
@@ -1323,6 +1404,17 @@ impl Vm {
             intrinsic::TypedArrays,
         )>(&runtime)
         .map_err(|_| blocked("cannot initialize dynamic script context"))?;
+        let mut timeline_starts: Vec<_> = plan
+            .bindings
+            .iter()
+            .map(|binding| {
+                binding
+                    .timeline
+                    .as_ref()
+                    .filter(|track| !track.clock.start_paused)
+                    .map(|_| 0.0)
+            })
+            .collect();
         let (host, modules, initialization) = context.with(|ctx| -> Result<_> {
             let host: Object = ctx.eval(HOST).map_err(|_| {
                 let exception = ctx.catch();
@@ -1337,11 +1429,13 @@ impl Vm {
             let load: Function = host.get("load")?;
             load.call::<_, ()>((ctx.json_parse(serde_json::to_vec(&plan.layers)?)?,))?;
             let owner: Function = host.get("owner")?;
+            let play_requested: Function = host.get("playRequested")?;
             let initialize: Function = host.get("initialize")?;
             let registration: Function = host.get("register")?;
             let mut modules = Vec::new();
             for (index, binding) in plan.bindings.iter().enumerate() {
-                owner.call::<_, ()>((binding.layer,))?;
+                let clock_owner = plan.timeline_owners[index];
+                owner.call::<_, ()>((binding.layer, clock_owner.is_some()))?;
                 let configure: Function = host.get("configure")?;
                 configure.call::<_, ()>((
                     ctx.json_parse(serde_json::to_vec(&binding.script_properties)?)?,
@@ -1389,6 +1483,9 @@ impl Vm {
                         blocked("dynamic property callback failed or exceeded its limits")
                     })?;
                 }
+                if clock_owner == Some(index) && play_requested.call::<_, bool>(())? {
+                    timeline_starts[index] = Some(0.0);
+                }
                 modules.push(Persistent::save(&ctx, module.namespace()?));
             }
             let snapshot = read_snapshot(&host, &base_handles)?;
@@ -1402,6 +1499,8 @@ impl Vm {
                 _runtime: runtime,
                 deadline,
                 bindings: plan.bindings.clone(),
+                timeline_owners: plan.timeline_owners.clone(),
+                timeline_starts,
                 base_handles,
                 last_time: 0.0,
             },
@@ -1437,21 +1536,35 @@ impl Vm {
             let values=serde_json::json!({"left":audio.left.to_vec(),"right":audio.right.to_vec(),"script_left":audio.script_left.to_vec(),"script_right":audio.script_right.to_vec(),"script_average":audio.script_average.to_vec()});
             frame.call::<_, ()>((time,delta,ctx.json_parse(serde_json::to_vec(&values)?)?))?;
             let owner: Function = host.get("owner")?;
+            let play_requested: Function = host.get("playRequested")?;
             let input: Function = host.get("input")?;
             let output: Function = host.get("output")?;
             // The authored timeline pass precedes every SceneScript update,
             // including callbacks on other properties of the same layer.
-            for binding in &self.bindings {
-                if let Some(timeline) = &binding.timeline {
-                    output.call::<_, ()>((
-                        binding.layer,
-                        binding.property.as_str(),
-                        timeline.sample(time),
-                    ))?;
+            let timeline_vector: Function = host.get("timelineVector")?;
+            for (binding, owner) in self.bindings.iter().zip(&self.timeline_owners) {
+                let (Some(track), Some(owner)) = (&binding.timeline, owner) else {
+                    continue;
+                };
+                let clock = &self.bindings[*owner].timeline.as_ref().expect("validated owner").clock;
+                let elapsed = self.timeline_starts[*owner].map_or(0.0, |start| time - start);
+                let position = clock.position(elapsed);
+                let property = binding.property.as_str();
+                match track.sample(position) {
+                    Sample::Scalar(value) => output.call::<_, ()>((binding.layer, property, value))?,
+                    Sample::Vector([x, y, z]) => {
+                        timeline_vector.call::<_, ()>((binding.layer, property, x, y, z))?;
+                    }
                 }
             }
-            for (module, binding) in self.modules.iter().zip(&self.bindings) {
-                owner.call::<_, ()>((binding.layer,))?;
+            for (index, ((module, binding), clock_owner)) in self
+                .modules
+                .iter()
+                .zip(&self.bindings)
+                .zip(&self.timeline_owners)
+                .enumerate()
+            {
+                owner.call::<_, ()>((binding.layer, clock_owner.is_some()))?;
                 let module = module.clone().restore(&ctx)?;
                 let update: Function = module.get("update")?;
                 let current =
@@ -1462,6 +1575,17 @@ impl Vm {
                 output
                     .call::<_, ()>((binding.layer, binding.property.as_str(), value))
                     .map_err(|_| blocked("dynamic update returned an invalid binding value"))?;
+                // The child handle controls its private track. Only the root
+                // handle can change the clock used to sample the group.
+                if *clock_owner == Some(index)
+                    && play_requested.call::<_, bool>(())?
+                {
+                    let start = &mut self.timeline_starts[index];
+                    let track = binding.timeline.as_ref().expect("validated owner");
+                    if start.is_none_or(|start| track.clock.finished(time - start)) {
+                        *start = Some(time);
+                    }
+                }
             }
             let snapshot = read_snapshot(&host, &self.base_handles)?;
             Ok(snapshot.states)
@@ -1834,8 +1958,11 @@ mod tests {
             source: "let base; export function init(value){base=value;} export function update(value){return value*base*0.5;}".into(),
             input: author["value"].clone(),
             script_properties: serde_json::json!({}),
-            timeline: Some(ScalarTimeline::parse(&author["animation"]).unwrap()),
+            timeline: Some(
+                PropertyTimeline::parse(&author["animation"], "alpha", &author["value"]).unwrap(),
+            ),
         });
+        plan.timeline_owners = timeline_owners(&plan.bindings).unwrap();
         let (mut vm, _) = Vm::new(&plan, Arc::new(AtomicBool::new(false))).unwrap();
         let initial = vm.frame(0., [0.; 64]).unwrap();
         assert!(!initial[0].visible);
@@ -1843,6 +1970,42 @@ mod tests {
         let next = vm.frame(0.25, [0.; 64]).unwrap();
         assert!(next[0].visible);
         assert_eq!(next[0].alpha, 0.375);
+    }
+
+    #[test]
+    fn property_play_starts_paused_and_restarts_only_after_completion() {
+        let mut author = super::super::tests::timeline_alpha();
+        author["animation"]["options"]["startpaused"] = Value::Bool(true);
+        let source = "export function update(value){if(engine.runtime>=0.25){thisObject.getAnimation().play();}return value;}";
+        assert!(prepare(source).is_err());
+        let plan = PreparedScripts::prepare(
+            vec![Binding {
+                layer: 7,
+                property: "alpha".into(),
+                source: source.into(),
+                input: author["value"].clone(),
+                script_properties: serde_json::json!({}),
+                timeline: Some(
+                    PropertyTimeline::parse(&author["animation"], "alpha", &author["value"])
+                        .unwrap(),
+                ),
+            }],
+            vec![layer()],
+            serde_json::json!({}),
+        )
+        .unwrap();
+        let (mut vm, _) = Vm::new(&plan, Arc::new(AtomicBool::new(false))).unwrap();
+        for (time, alpha) in [
+            (0., 0.25),
+            (0.125, 0.25),
+            (0.25, 0.25),
+            (0.375, 0.5),
+            (0.5, 0.75),
+            (1.25, 0.75),
+            (1.375, 0.5),
+        ] {
+            assert_eq!(vm.frame(time, [0.; 64]).unwrap()[0].alpha, alpha, "{time}");
+        }
     }
 
     // Independent author fixture: do not copy a user-owned package's scripts

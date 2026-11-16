@@ -461,14 +461,17 @@ fn extract_runtime_bindings(
             }
             let timeline = animation
                 .map(|animation| {
-                    if !image || text || property != "alpha" || wrapper.contains_key("user") {
+                    if !(image || text)
+                        || !matches!(property.as_str(), "alpha" | "origin" | "scale")
+                        || wrapper.contains_key("user")
+                    {
                         return Err(unsupported(
                             "timeline",
-                            "mixed timelines require an image layer alpha binding",
+                            "mixed timelines require a modeled alpha or transform property",
                         ));
                     }
                     properties.validate_timeline(animation)?;
-                    property_timeline::ScalarTimeline::parse(animation)
+                    property_timeline::PropertyTimeline::parse(animation, property, input)
                 })
                 .transpose()?;
             bindings.push(dynamic_script::Binding {
@@ -2589,7 +2592,7 @@ mod tests {
             0.125
         );
 
-        fixture.scene(serde_json::json!([{"image":"models/image.json","scale":alpha}]));
+        fixture.scene(serde_json::json!([{"image":"models/image.json","angles":alpha}]));
         let error = PreparedScene::prepare(&fixture.0, None).unwrap_err();
         assert_eq!(unsupported_feature_code(&error), Some("timeline"));
 

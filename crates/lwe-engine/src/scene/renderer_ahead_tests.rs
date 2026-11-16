@@ -181,14 +181,29 @@ fn ahead(renderer: &mut SceneRenderer, time: f64, timed: bool) -> Result<()> {
 
 #[test]
 #[ignore = "requires opt-in surfaceless EGL; no desktop backend"]
-fn mixed_alpha_replays_accepted_pixels_before_next_timeline_sample() -> Result<()> {
+fn linked_scale_and_alpha_replay_accepted_pixels_before_next_timeline_sample() -> Result<()> {
     use super::super::tests::{Fixture, timeline_alpha};
     use serde_json::json;
 
     let fixture = Fixture::new();
+    let mut alpha = timeline_alpha();
+    alpha["animation"]["options"]["parent"] = json!({"key":"scale"});
+    alpha["animation"]["options"]["fps"] = json!(8);
+    alpha["animation"]["options"]["startpaused"] = json!(true);
+    let scale = json!({
+        "value":"1 1.5 1",
+        "script":"export function init(){thisObject.getAnimation().play();}export function update(value){return value;}",
+        "animation":{
+            "relative":true,
+            "c0":[{"frame":0,"value":0}],
+            "c1":[{"frame":0,"value":-0.5},{"frame":1,"value":-1}],
+            "c2":[{"frame":0,"value":0}],
+            "options":{"children":[{"key":"alpha"}],"fps":4,"length":4,"mode":"single","startpaused":true}
+        }
+    });
     fixture.scene(json!([{
         "image":"models/image.json", "size":"16 16", "origin":"8 8 0",
-        "alpha":timeline_alpha()
+        "alpha":alpha, "scale":scale
     }]));
     let scene = PreparedScene::prepare(&fixture.0, None)?;
     let _context = super::sharing_tests::Offscreen::new()?;
@@ -198,6 +213,7 @@ fn mixed_alpha_replays_accepted_pixels_before_next_timeline_sample() -> Result<(
     let (initial_pixels, _) = initial.as_chunks::<4>();
     renderer.update(0.)?;
     assert_eq!(renderer.layers[0].tint[3], 0.125);
+    assert_eq!(renderer.layers[0].scale, [1., 1.]);
     assert!(
         initial_pixels
             .iter()
@@ -213,6 +229,7 @@ fn mixed_alpha_replays_accepted_pixels_before_next_timeline_sample() -> Result<(
         (pending.seq, pending.time, pending.states[0].alpha),
         (1, 0.25, 0.375)
     );
+    assert_eq!(pending.states[0].scale, [1., 0.5, 1.]);
     renderer.freeze_for_rollback()?;
     renderer.thaw(true);
     let replay = draw(&mut renderer, 8, 0.5, true)?;
@@ -230,12 +247,15 @@ fn mixed_alpha_replays_accepted_pixels_before_next_timeline_sample() -> Result<(
     let resumed = draw(&mut renderer, 8, 0.75, false)?;
     assert_eq!((renderer.accepted_seq, renderer.accepted_time), (1, 0.25));
     assert_eq!(renderer.layers[0].tint[3], 0.375);
-    assert!(
+    assert_eq!(renderer.layers[0].scale, [1., 0.5]);
+    assert_eq!(
         resumed
             .as_chunks::<4>()
             .0
             .iter()
-            .all(|pixel| pixel[0].abs_diff(96) <= 1)
+            .filter(|pixel| pixel[0].abs_diff(96) <= 1)
+            .count(),
+        32
     );
     renderer.cleanup();
     pool.drain_retired()?;
