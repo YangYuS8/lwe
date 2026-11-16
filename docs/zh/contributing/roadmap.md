@@ -160,6 +160,26 @@ workspace 检查通过：ordinary 559 项（含两项 doctest）、36 项 ignore
 
 新增原 PE REA 证据保留三十一条静态记录，观察通用 target-handle cache、named lookup 后才 create 和尺寸相关 resize；不证明原 History/view/copy 语义、OpenGL 行为或 GPU/FPS 成本，LWE 验证独立，原反编译源码不导入。见独立[历史 FBO 记录](./guide.md#scene-history-fbo-2026-10-14)。下一步继续以 Layer 8 ColorMode 28 与原 Simple Audio Bars 为主线做有界逐 pass 归因，保持原艺术公式、完整效果/分辨率、资源和预算，不预设进一步收益。此前证据保持原样，不宣称 30 FPS/日用、物理/UI/安装包/Windows 或长时验收，物理休眠/恢复继续跳过。
 
+### Scene 绘制归因与 FullFrame 来源复用（2026-10-15）
+
+新基线为已合并 #112 `71b69f5497929b70d013694f6315d5020049dd41`，此前日期记录保留。原 PE REA 共保留六十条静态 Evidence（新增二十九条、二十三指令锚点），观察到 dirty-gated material 更新、独立动态 record 与每个 32 段通道 128 字节打包；未执行 Wallpaper Engine/Wine，不证明 Windows 上传节奏、API 名称、活跃范围或 GPU/FPS 成本。原源码和私有诊断 hook 不导入生产。
+
+独立两 site AMD/GL4.6 诊断完成并已归档/恢复，三十二 query/八 slot/512 records 及 512 MiB 图像门控保持；原生输出 1920×1080 内的两个实测目标均为 3840×2160。210 条 guarded 动画记录中，Audio Bars/Layer 8 的 DrawArrays-only completion 均值为 4.579791/5.159573 ms，Audio CPU spectrum loop 均值 0.706683 µs，实际 linked 左右各 32-float array 活跃（256 API payload 字节），location−1 的尝试不算上传。Clear 的 807.92 µs 单点保留；不同帧 CPU/GPU 均值不合并成关键路径或 FPS 预测，不跨 CPU/GPU 时钟相减。
+
+不同二进制的 A-off/P-on/P-on/A-off 对照观察 14.799973 → 14.949973 FPS（+1.0135%），不是生产优化或 instrumentation 零开销证明。A1 两次动画 empty 与 P2 一次 cleanup 丢弃 sample 保持明确，query 删除、暂停/恢复/清除/join 与身份检查通过，不称所有 empty/drop 均为零；每 variant 两轮短测不代表稳定或显著效果。见独立[绘制归因记录](./guide.md#scene-material-bind-2026-10-15)。原公式、完整效果/分辨率与预算仍必须保留，不扩展为 Windows/UI/安装包/长期验收；物理休眠/恢复继续跳过。
+
+独立基线 shader 捕获在首次仅 `ps` 未获结果后取得实际 NIR/ACO ISA；child-only 的 `ps,nir,asm,stats` 与关闭 cache 请求另有记录，harness environment subset 本身未重复记录。program 编号及唯一接口/数据流支持跨进程 Audio/Color 映射，但没有同进程 source-SHA/link marker；`source_blake3` 只关联 dump 内 NIR↔ISA。Audio 已是四条紧凑动态 buffer load，不存在 32/64 元素 array select 链；Color 背景 hue/saturation 已被消除。最终 ISA 的 Audio/Color VGPR 为 32/24、code 为 856/948 B、scratch/spill 零、Max Waves 16，不代表实测 occupancy、cache miss 或指令成本；显式 UBO 迁移或重复 HSL 简化均无已证明收益，debug 捕获不计入吞吐对照。
+
+另一个首 bind 非 `g_` material 常量候选（`439fb7…`）记录通过 562 ordinary/42 ignored 及二十一显式 GPU 检查，八输出/二十四历史 hash 和 metadata 精确一致，512 MiB 上界及零清理保持。独立 release A–B–B–A 仅观察 15.2666388412 → 15.2999669087 FPS（+0.2183%），单轮范围重叠且有时间趋势，没有建立实际收益；renderer/测试已归档/恢复，该候选被拒，不作为已交付 material 优化。候选检查与保留的 #112 基线及私有 A/P 诊断分列。
+
+保留的独立 FullFrame 来源复用候选（`73aa35…`、renderer `50fef0…`）仅在 staged/非 direct、无 authored composite 且 `work_offset >= 2` 时借用当前 composition，全部读取先于最终 copy compositor 写入；其它情况保留 snapshot。不改 shader 算术、graph、尺寸、分配或 512 MiB 门控，也不按 layer ID 特判。记录通过 562 ordinary/42 ignored 与二十一显式 GPU；最终两测试 sentinel 复跑证明 snapshot 未被更新，严格 RGBA/history/replay/fallback 保持，不增加 unique 测试计数。完整原图 oracle JSON 与 #112 相同，含八输出/二十四历史/metadata、未变 CPU/GPU peak 及结束零计费。
+
+独立、profiling 关闭的原生 A–B–B–A 实测 A 883 swaps/60.000115738 s = 14.7166382788 FPS（范围 14.566637–14.866640），B 982/60.000110696 = 16.3666364713（15.933304–16.799968），观察 **+11.2118%**。两轮 B 均高于两轮 A，本批保留修改，仅省原 Miku layer 2/9 两个 layer 前 helper snapshot，二十五 logical pass 保留。成功 render+swap CPU wall 均值为 3.969689 → 3.525623 ms，不是 GPU 时间；暂停 counter/dispatch/render CPU 均零，动画/恢复 empty、恢复/clear/join、二进制/原输入/私有环境及预算门控通过。每 variant 仅两轮三十秒且十二秒 PCM epoch 未同步，不是稳定/通用/显著收益证明，不与旧百分比相加。
+
+独立同二进制原生检查通过原图动画/暂停/恢复、暂停换静态图恰好一次 draw/swap、static playing 计数/dispatch 零、clear/join 与自有子进程退出。审阅的 1920×1080 默认 Miku/CRT 截图只证明一个可见帧，不证明 Windows 等价。精确核验自有 compositor/音频并清理，supervisor 零退出、PID/窗口消失、host 默认音频前后原始读数一致、焦点恢复均通过；批次间 host snapshot 仅为一次观测，不是持续或每轮可见/音频证明。下一步先验证硬件 counter 能力和扰动控制，再区分采样/写回流量与算术成本，避免重复无证据的 UBO 或已消除的背景 HSL 方向；物理休眠/恢复继续跳过。
+
+另补完整原图固定频谱 AMD 离屏基线/候选对照：2160×1440 输出和原 4K composition target 下，八输出/二十四历史、metadata、replay 及资源/清理记录全部一致。这是既有测试两次执行，与软件及实时 PCM 原生证据分列，不增加 unique 用例数，也不证明 Windows 等价。
+
 ### 实施顺序与阶段出口
 
 下表保留未来完整阶段的验收目标，其中物理休眠恢复已明确移出当前批次。有界 P0 inventory、首批 P1 运行时/设置、受限 P2 相机与可编辑属性持久化，以及默认混合项目 CPU/GPU 路径已实现。默认和属性编辑器原生 UI（包括真实保存失败/重试及十二秒自有全屏恢复）已通过，其他生命周期验收仍未完成，没有标记任何完整阶段或日用里程碑完成。不支持的行为仍门控，已实现路径仍需通过所列验收。

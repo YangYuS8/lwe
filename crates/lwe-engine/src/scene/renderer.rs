@@ -1269,6 +1269,12 @@ struct GpuLayer {
     angles: [f32; 3],
 }
 impl GpuLayer {
+    fn can_sample_current_frame(&self) -> bool {
+        // Only staged layers reserve both canvas work slots. Their FullFrame
+        // reads finish before the copy compositor writes the current frame.
+        !self.direct && self.composite.is_none() && self.work_offset >= 2
+    }
+
     fn new(
         layer: &PreparedLayer,
         canvas: [f32; 2],
@@ -2645,15 +2651,23 @@ impl SceneRenderer {
             {
                 continue;
             }
-            if self.full_frame.len() == 2
+            let needs_frame = self.full_frame.len() == 2
                 && (layer.composite.is_some()
                     || layer
                         .stages
                         .iter()
                         .flat_map(|stage| &stage.passes)
                         .flat_map(|pass| &pass.textures)
-                        .any(|binding| matches!(binding, TextureBinding::FullFrame)))
-            {
+                        .any(|binding| matches!(binding, TextureBinding::FullFrame)));
+            let sample_current = needs_frame && layer.can_sample_current_frame();
+            let inputs = TextureInputs {
+                full_frame: self
+                    .full_frame
+                    .get(usize::from(!sample_current))
+                    .map(|frame| &frame.texture),
+                ..inputs
+            };
+            if needs_frame && !sample_current {
                 unsafe {
                     gl::BindFramebuffer(gl::READ_FRAMEBUFFER, target);
                     gl::BindFramebuffer(gl::DRAW_FRAMEBUFFER, self.full_frame[1].fbo);
@@ -3306,6 +3320,10 @@ mod owned_blend_tests;
 #[cfg(test)]
 #[path = "renderer_copy_fbo_tests.rs"]
 mod copy_fbo_tests;
+
+#[cfg(test)]
+#[path = "renderer_fullframe_source_tests.rs"]
+mod fullframe_source_tests;
 
 #[cfg(test)]
 mod tests {
