@@ -5,6 +5,13 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use lwe_scene::{AnimationMetadata, AtlasMemoryReservation, TimedAtlasSource};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum StaticTextureStorage {
+    Rgba8,
+    Rg8,
+    R8,
+}
+
 #[derive(Debug)]
 pub(crate) struct PreparedStaticTexture {
     pub fingerprint: [u8; 32],
@@ -15,6 +22,7 @@ pub(crate) struct PreparedStaticTexture {
     pub format: u32,
     pub flags: u32,
     pub animation: Option<AnimationMetadata>,
+    pub(super) storage: StaticTextureStorage,
     rgba: Vec<u8>,
     // Pixel and frame storage drops before its reservation.
     reservation: AtlasMemoryReservation,
@@ -24,7 +32,18 @@ impl PreparedStaticTexture {
         decoded: lwe_scene::Texture,
         fingerprint: [u8; 32],
         reservation: AtlasMemoryReservation,
+        raw_mip: bool,
     ) -> Self {
+        let storage = match (
+            raw_mip
+                && decoded.metadata.container_format == -1
+                && decoded.metadata.animation.is_none(),
+            decoded.metadata.format,
+        ) {
+            (true, 8) => StaticTextureStorage::Rg8,
+            (true, 9) => StaticTextureStorage::R8,
+            _ => StaticTextureStorage::Rgba8,
+        };
         Self {
             fingerprint,
             width: decoded.width,
@@ -34,6 +53,7 @@ impl PreparedStaticTexture {
             format: decoded.metadata.format,
             flags: decoded.metadata.flags,
             animation: decoded.metadata.animation,
+            storage,
             rgba: decoded.rgba,
             reservation,
         }

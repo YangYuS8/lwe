@@ -5,6 +5,7 @@
 
 mod audio;
 mod dynamic_script;
+mod hierarchy;
 mod particles;
 mod postprocess;
 mod prepared_source;
@@ -293,6 +294,7 @@ impl PreparedTexture {
 
 #[derive(Debug)]
 pub(crate) struct PreparedLayer {
+    world_2d: Option<hierarchy::Transform>,
     pub size: [f32; 2],
     pub origin: [f32; 2],
     pub scale: [f32; 2],
@@ -861,8 +863,11 @@ impl Preparation<'_> {
                     None
                 };
                 let payload = raw.as_deref().unwrap_or(stored);
-                if payload.starts_with(b"\x89PNG\r\n\x1a\n") || payload.starts_with(b"\xff\xd8\xff")
-                {
+                // The decoder detects encoded images by their actual mip
+                // signature even when TEX metadata names a raw pixel format.
+                let encoded_image = payload.starts_with(b"\x89PNG\r\n\x1a\n")
+                    || payload.starts_with(b"\xff\xd8\xff");
+                if encoded_image {
                     reservation.resize(
                         scratch
                             .checked_add(
@@ -896,6 +901,7 @@ impl Preparation<'_> {
                     decoded,
                     fingerprint,
                     reservation,
+                    !encoded_image,
                 ));
                 prepared_source::put_static(cache_key, &owner);
                 owner
@@ -1792,6 +1798,7 @@ impl PreparedScene {
         }
         let mut controlled_handles: BTreeSet<_> =
             bindings.iter().map(|binding| binding.layer).collect();
+        let placement = hierarchy::prepare(objects, &controlled_handles, [width, height])?;
         let scripts = if bindings.is_empty() {
             None
         } else {
@@ -1870,7 +1877,8 @@ impl PreparedScene {
         })?
         .map(Arc::new);
         let mut effect_count = 0;
-        for (object, handle) in authored_objects.iter().zip(handles) {
+        for (index, (object, handle)) in authored_objects.iter().zip(handles).enumerate() {
+            let placement = placement.get(index).copied().unwrap_or_default();
             preparation.active_layer_id = object
                 .get("id")
                 .map(|id| id.as_u64().context("Invalid layer identity"))
@@ -1888,6 +1896,7 @@ impl PreparedScene {
             // Keep runtime-owned images allocated even when initially hidden.
             if (!boolean(object, "visible", true)? && script_state.is_none())
                 || object.get("sound").is_some()
+                || placement.transform_only
             {
                 continue;
             }
@@ -2000,12 +2009,6 @@ impl PreparedScene {
                 !(is_text && image.is_some()),
                 "Ambiguous image and text object"
             );
-            if object.get("parent").is_some() {
-                return Err(unsupported(
-                    "hierarchy",
-                    "image parent bindings are not supported",
-                ));
-            }
             let perspective = boolean(object, "perspective", false)?;
             for key in ["puppet", "animation", "mesh"] {
                 if object.get(key).is_some() {
@@ -2041,6 +2044,9 @@ impl PreparedScene {
             }
             let fullscreen = boolean(&model, "fullscreen", false)?;
             let passthrough = boolean(&model, "passthrough", false)?;
+            if placement.member && (fullscreen || passthrough) {
+                return Err(unsupported("hierarchy", "Fullscreen Scene hierarchy"));
+            }
             ensure!(
                 fullscreen == passthrough,
                 "Unsupported partial fullscreen model"
@@ -2143,6 +2149,15 @@ impl PreparedScene {
                     .all(|value| value.is_finite() && (1.0..=16384.0).contains(value)),
                 "Invalid image layer size"
             );
+            if placement
+                .world
+                .is_some_and(|world| !world.fits_projected_quad(size, [width, height]))
+            {
+                return Err(unsupported(
+                    "hierarchy",
+                    "Scene hierarchy exceeds projected numeric range",
+                ));
+            }
             let origin = vector(object, "origin", [width / 2.0, height / 2.0, 0.0])?;
             let angles = vector(object, "angles", [0.0; 3])?;
             // Under this fixed orthographic camera, a coplanar image has the
@@ -2175,6 +2190,19 @@ impl PreparedScene {
                 .map(|value| value.as_u64().context("Invalid image color blend mode"))
                 .transpose()?
                 .unwrap_or(0);
+            if placement.member
+                && (color_mode != 0
+                    || stages.iter().flat_map(|stage| &stage.passes).any(|pass| {
+                        pass.textures
+                            .iter()
+                            .any(|texture| matches!(texture, TextureBinding::FullFrame))
+                    }))
+            {
+                return Err(unsupported(
+                    "hierarchy",
+                    "Scene hierarchy with full-frame input or composite",
+                ));
+            }
             let composite = if color_mode == 0 {
                 None
             } else {
@@ -2194,6 +2222,7 @@ impl PreparedScene {
                 script_layers.insert(handle, layers.len());
             }
             layers.push(PreparedLayer {
+                world_2d: placement.world,
                 size,
                 origin: [origin[0], origin[1]],
                 scale: [scale[0], scale[1]],
@@ -2406,6 +2435,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     include!("instance_material_tests.rs");
+    include!("hierarchy_tests.rs");
 
     struct Fixture(PathBuf);
     impl Fixture {

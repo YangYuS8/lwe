@@ -140,6 +140,7 @@ pub(super) fn fixture(repeat: bool, rgba: Vec<u8>) -> PreparedScene {
             animation: None,
         }],
         layers: vec![PreparedLayer {
+            world_2d: None,
             clamp_uvs: false,
             crop_offset: [0.; 2],
             no_padding: false,
@@ -219,6 +220,176 @@ fn sampling(id: u32) -> i32 {
         gl::GetTexParameteriv(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, &mut wrap);
     }
     wrap
+}
+
+fn storage_probe_scene(texture: PreparedTexture) -> PreparedScene {
+    let mut scene = fixture(false, Vec::new());
+    scene.canvas = [3.0, 2.0];
+    scene.layers[0].size = scene.canvas;
+    scene.layers[0].origin = [1.5, 1.0];
+    scene.textures[0] = texture;
+    scene
+}
+
+fn storage_probe_pixels(renderer: &mut SceneRenderer, target: &RenderTarget) -> Result<[u8; 24]> {
+    unsafe { gl::BindFramebuffer(gl::DRAW_FRAMEBUFFER, target.fbo) };
+    ensure!(
+        renderer.render_forced(3, 2, 0.0)?,
+        "storage probe did not draw"
+    );
+    renderer.report_presented();
+    let mut pixels = [0; 24];
+    unsafe {
+        gl::BindFramebuffer(gl::READ_FRAMEBUFFER, target.fbo);
+        gl::ReadPixels(
+            0,
+            0,
+            3,
+            2,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            pixels.as_mut_ptr().cast(),
+        );
+    }
+    check_gl("reading static texture storage probe")?;
+    Ok(pixels)
+}
+
+fn texture_storage(id: u32) -> [i32; 5] {
+    let mut values = [0; 5];
+    unsafe {
+        gl::BindTexture(gl::TEXTURE_2D, id);
+        for (pname, value) in [
+            gl::TEXTURE_INTERNAL_FORMAT,
+            gl::TEXTURE_RED_SIZE,
+            gl::TEXTURE_GREEN_SIZE,
+            gl::TEXTURE_BLUE_SIZE,
+            gl::TEXTURE_ALPHA_SIZE,
+        ]
+        .into_iter()
+        .zip(&mut values)
+        {
+            gl::GetTexLevelParameteriv(gl::TEXTURE_2D, 0, pname, value);
+        }
+    }
+    values
+}
+
+#[test]
+#[ignore = "requires an explicit tiny EGL/OpenGL offscreen run"]
+fn offscreen_static_red_and_red_green_store_fewer_channels_with_identical_samples() -> Result<()> {
+    use super::super::prepared_texture_identity_tests::prepare_storage_texture;
+    let _context = Offscreen::new()?;
+    let output = RenderTarget::new(3, 2)?;
+    let texels = [
+        [16, 222],
+        [96, 32],
+        [240, 160],
+        [48, 80],
+        [144, 176],
+        [208, 64],
+    ];
+    for (format, channels, internal) in [(9, 1, gl::R8), (8, 2, gl::RG8)] {
+        let native: Vec<u8> = texels
+            .iter()
+            .flat_map(|texel| &texel[..channels])
+            .copied()
+            .collect();
+        let expected_rgba: Vec<u8> = texels
+            .iter()
+            .flat_map(|[r, g]| [*r, if channels == 2 { *g } else { 0 }, 0, 255])
+            .collect();
+        let mut narrow = storage_probe_scene(prepare_storage_texture(format, &native, true));
+        let mut full = storage_probe_scene(prepare_storage_texture(0, &expected_rgba, false));
+        let pool = TexturePool::new()?;
+        let clamp_plan = resource_plan(&narrow)?;
+        assert_eq!(
+            clamp_plan.textures.values().copied().collect::<Vec<_>>(),
+            [24]
+        );
+        let mut current = SceneRenderer::initialize_shared(&narrow, Rc::clone(&pool))?;
+        let mut candidate = SceneRenderer::initialize_shared(&narrow, Rc::clone(&pool))?;
+        let clamp = current.textures[0].get(false)?.id;
+        assert_eq!(candidate.textures[0].get(false)?.id, clamp);
+        assert_eq!(pool.resident_bytes()?, clamp_plan.immutable_bytes()?);
+        assert_eq!(
+            texture_storage(clamp),
+            [internal as i32, 8, if channels == 2 { 8 } else { 0 }, 0, 0]
+        );
+        let mut reference = SceneRenderer::initialize(&full)?;
+        assert_eq!(
+            texture_storage(reference.textures[0].get(false)?.id),
+            [gl::RGBA8 as i32, 8, 8, 8, 8]
+        );
+        let expected: Vec<_> = expected_rgba
+            .as_chunks::<12>()
+            .0
+            .iter()
+            .rev()
+            .flatten()
+            .copied()
+            .collect();
+        assert_eq!(
+            storage_probe_pixels(&mut current, &output)?.as_slice(),
+            expected
+        );
+        assert_eq!(
+            storage_probe_pixels(&mut reference, &output)?.as_slice(),
+            expected
+        );
+        candidate.cleanup();
+        reference.cleanup();
+        assert_eq!(pool.resident_bytes()?, clamp_plan.immutable_bytes()?);
+
+        for scene in [&mut narrow, &mut full] {
+            let shader = scene.layers[0].stages[0].passes[0].shader.as_mut().unwrap();
+            let shifted = shader.fragment.replace(
+                "texture(g_Texture0,uv)",
+                "texture(g_Texture0,uv + vec2(0.5,0.0))",
+            );
+            assert_ne!(shifted, shader.fragment);
+            shader.fragment = shifted;
+        }
+        let mut clamp_pixels = None;
+        for repeat in [false, true] {
+            if repeat {
+                for scene in [&mut narrow, &mut full] {
+                    scene.layers[0].stages[0].passes[0].label = "genericimage".into();
+                }
+            }
+            let mut trial = SceneRenderer::initialize_shared(&narrow, Rc::clone(&pool))?;
+            let trial_id = trial.textures[0].get(repeat)?.id;
+            let mut reference = SceneRenderer::initialize(&full)?;
+            let pixels = storage_probe_pixels(&mut trial, &output)?;
+            assert_eq!(pixels, storage_probe_pixels(&mut reference, &output)?);
+            if repeat {
+                assert_ne!(
+                    pixels,
+                    clamp_pixels.unwrap(),
+                    "fixture must exercise the wrap seam"
+                );
+                assert_ne!(trial_id, clamp);
+                assert_eq!(sampling(trial_id), gl::REPEAT as i32);
+                assert_eq!(pool.resident_bytes()?, clamp_plan.immutable_bytes()? + 24);
+            } else {
+                assert_ne!(
+                    pixels.as_slice(),
+                    expected,
+                    "fixture must exercise linear sampling"
+                );
+                assert_eq!(trial_id, clamp);
+                assert_eq!(sampling(trial_id), gl::CLAMP_TO_EDGE as i32);
+                clamp_pixels = Some(pixels);
+            }
+            trial.cleanup();
+            reference.cleanup();
+            assert_eq!(pool.resident_bytes()?, clamp_plan.immutable_bytes()?);
+        }
+        current.cleanup();
+        assert_eq!(pool.resident_bytes()?, 0);
+        pool.close()?;
+    }
+    Ok(())
 }
 
 #[test]

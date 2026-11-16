@@ -17,6 +17,7 @@ mod acceptance;
 #[path = "renderer_yakuza_acceptance.rs"]
 mod yakuza_acceptance;
 
+use super::prepared_source::StaticTextureStorage;
 use super::shared_texture::{ResourcePlan, SharedTexture, TextureKey, TexturePool, WorkKey};
 
 use super::{
@@ -747,6 +748,14 @@ impl GpuTexture {
             texture.image_height as i32,
             texture.source_flags,
         );
+        // Keep the RGBA input, its lease and the RGBA-equivalent GPU charge.
+        // Desktop GL retains the stored channels and supplies zero/one for
+        // the same absent channels that the native raw decoder expanded.
+        let internal_format = match texture.static_source.as_ref().map(|source| source.storage) {
+            Some(StaticTextureStorage::R8) => gl::R8,
+            Some(StaticTextureStorage::Rg8) => gl::RG8,
+            Some(StaticTextureStorage::Rgba8) | None => gl::RGBA8,
+        };
         // SAFETY: pixels contains width*height*4 bytes; unpack PBO is disabled.
         unsafe {
             gl::GenTextures(1, &mut result.id);
@@ -754,7 +763,7 @@ impl GpuTexture {
             gl::TexImage2D(
                 gl::TEXTURE_2D,
                 0,
-                gl::RGBA8 as i32,
+                internal_format as i32,
                 result.width,
                 result.height,
                 0,
@@ -1255,6 +1264,7 @@ impl GpuStage {
     }
 }
 struct GpuLayer {
+    world_2d: Option<super::hierarchy::Transform>,
     size: [f32; 2],
     origin: [f32; 2],
     scale: [f32; 2],
@@ -1307,6 +1317,7 @@ impl GpuLayer {
             .map(|stage| GpuStage::new(stage, width, height, work_offset, pool))
             .collect::<Result<_>>()?;
         Ok(Self {
+            world_2d: layer.world_2d,
             direct: direct_layer(layer),
             work_offset,
             origin_z: layer.origin_z,
@@ -3019,6 +3030,26 @@ fn layer_matrix(canvas: [f32; 2], layer: &GpuLayer, width: i32, height: i32) -> 
     } else {
         [canvas[1] * output_ratio, canvas[1]]
     };
+    if let Some(world) = layer.world_2d {
+        return [
+            world.x[0] * layer.size[0] / visible[0],
+            world.x[1] * layer.size[0] / visible[1],
+            0.,
+            0.,
+            world.y[0] * layer.size[1] / visible[0],
+            world.y[1] * layer.size[1] / visible[1],
+            0.,
+            0.,
+            0.,
+            0.,
+            1.,
+            0.,
+            2. * (world.origin[0] - canvas[0] / 2.) / visible[0],
+            2. * (world.origin[1] - canvas[1] / 2.) / visible[1],
+            0.,
+            1.,
+        ];
+    }
     let (sx, cx) = layer.angles[0].sin_cos();
     let (sy, cy) = layer.angles[1].sin_cos();
     let (sz, cz) = layer.angle.sin_cos();
@@ -3468,6 +3499,10 @@ fn render_layer<'a>(
 mod miku_acceptance;
 
 #[cfg(test)]
+#[path = "renderer_hierarchy_tests.rs"]
+mod hierarchy_tests;
+
+#[cfg(test)]
 #[path = "renderer_history_tests.rs"]
 mod history_tests;
 
@@ -3734,6 +3769,7 @@ mod tests {
                     rgba: rgba.clone(),
                 }],
                 layers: vec![PreparedLayer {
+                    world_2d: None,
                     clamp_uvs: false,
                     crop_offset: [0.; 2],
                     no_padding: false,
@@ -3896,6 +3932,7 @@ mod tests {
                 ],
             }],
             layers: vec![PreparedLayer {
+                world_2d: None,
                 clamp_uvs: false,
                 crop_offset: [0.; 2],
                 no_padding: false,
@@ -4191,6 +4228,7 @@ mod tests {
     #[test]
     fn aspect_cover_and_image_transform_are_centered() {
         let layer = GpuLayer {
+            world_2d: None,
             work_offset: 0,
             direct: false,
             origin_z: 0.,
